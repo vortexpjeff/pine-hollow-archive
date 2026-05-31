@@ -1,0 +1,61 @@
+{
+  "comment": "Pine Hollow Tag Taxonomy — maps Perch raw species to universal tags",
+  "version": "1.0",
+  "tags": {
+    "chicken": {
+      "perch_labels": ["Gallus gallus", "Chicken_and_rooster", "Fowl", "Gallus lafayettii", "Gallus sonneratii", "Gallus varius"],
+      "description": "Chicken and rooster vocalizations",
+      "training_tracks": ["chicken", "insectnet_background"]
+    },
+    "dog": {
+      "perch_labels": ["Canis latrans", "Canis lupus", "Canis familiaris", "Dog", "Domestic_sounds_and_home_"],
+      "description": "Dog barking, howling",
+      "training_tracks": ["soundscape"]
+    },
+    "frog": {
+      "perch_labels": ["Gastrophryne carolinensis", "Pseudacris crucifer", "Pseudacris regilla", "Rana arvalis", "Rana chensinensis", "Dryophytes chrysoscelis", "Lithobates sphenocephalus", "Anaxyrus fowleri", "Anaxyrus americanus", "Anaxyrus debilis", "Hyla cinerea", "Hyla squirella", "Dendropsophus minutus", "Hypopachus variolosus", "Gastrophryne olivacea", "Rana zhenhaiensis"],
+      "description": "Frog and toad calls",
+      "training_tracks": ["insectnet"]
+    },
+    "cicada": {
+      "perch_labels": ["Cicada mordoganensis", "Cicada cretensis", "Cicada barbara", "Cicada orni", "Cicada lodosi", "Hyalessa maculaticollis", "Gaeana cheni", "Myopsalta coolahensis", "Henicopsaltria eydouxii", "Henicopsaltria rufivelum", "Tibicinoides utahensis"],
+      "description": "Cicada sustained buzzing",
+      "training_tracks": ["insectnet"]
+    },
+    "cricket_katydid": {
+      "perch_labels": ["Neoxabea bipunctata", "Pterophylla camellifolia", "Oecanthus pellucens", "Cycloptilum comprehendens", "Eupholidoptera tyrrhenica", "Mongolodectes kiritshenkoi", "Rhacocleis thyrrhenica"],
+      "description": "Cricket and katydid chirps and trills",
+      "training_tracks": ["insectnet"]
+    },
+    "grasshopper": {
+      "perch_labels": [],
+      "description": "Grasshopper stridulation — Perch coverage is weak, building from confirmed clips",
+      "training_tracks": ["insectnet"]
+    },
+    "bee": {
+      "perch_labels": ["Apis mellifera"],
+      "description": "Bee and wasp wing buzz",
+      "training_tracks": ["insectnet"]
+    },
+    "human_voice": {
+      "perch_labels": ["Human_voice", "Speech", "Human", "Music", "Musical_instrument", "Singing"],
+      "description": "Human speech, music, instruments",
+      "training_tracks": ["soundscape"]
+    },
+    "mechanical": {
+      "perch_labels": ["Engine", "Vehicle", "Air_horn", "Siren", "Car_horn", "Airplane", "Helicopter"],
+      "description": "Engines, vehicles, machinery",
+      "training_tracks": ["soundscape"]
+    },
+    "wind_rain": {
+      "perch_labels": ["Wind", "Wind_instrument_and_woodwind_instru", "Rain", "Thunder", "Storm"],
+      "description": "Weather noise",
+      "training_tracks": ["background"]
+    },
+    "bird_song": {
+      "perch_labels": [],
+      "description": "Generic bird vocalization — fallback for species not in other categories",
+      "training_tracks": ["bird_classifier"]
+    }
+  }
+}
