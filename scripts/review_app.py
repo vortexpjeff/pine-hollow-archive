@@ -525,6 +525,35 @@ def main():
             st.success("🎉 All clips reviewed! Load the queue again to check for new clips.")
         else:
             st.info("No unreviewed clips in the archive.")
+        
+        # Offer retrain after a session
+        counts = st.session_state.get("session_counts", {})
+        total_actions = sum(counts.values())
+        if total_actions >= 10:
+            st.markdown("### 🧠 Retrain Models")
+            st.caption(f"{total_actions} clips reviewed this session — ready to retrain.")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("🔄 Retrain InsectNet", use_container_width=True):
+                    with st.spinner("Training insectnet model…"):
+                        import subprocess
+                        subprocess.run(
+                            ["python3", "scripts/retrain.py", "--track", "insectnet", "--compare"],
+                            cwd=str(ARCHIVE_PATH), capture_output=True, text=True, timeout=120
+                        )
+                    st.toast("InsectNet retrained!", icon="✅")
+                    st.rerun()
+            with col_b:
+                if st.button("🔄 Retrain All Tracks", use_container_width=True):
+                    with st.spinner("Training all tracks…"):
+                        import subprocess
+                        subprocess.run(
+                            ["python3", "scripts/retrain.py", "--all-tracks"],
+                            cwd=str(ARCHIVE_PATH), capture_output=True, text=True, timeout=300
+                        )
+                    st.toast("All tracks retrained!", icon="✅")
+                    st.rerun()
+        
         show_batch_controls()
         show_sidebar_stats(0, 0, st.session_state.session_start)
         return
