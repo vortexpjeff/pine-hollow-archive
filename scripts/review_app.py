@@ -143,18 +143,18 @@ def compute_active_learning_scores(embeddings, labels, confidences, perch_preds,
     # 1. Margin sampling  (higher = more certain = lower priority)
     for i, (preds, conf) in enumerate(zip(perch_preds, confidences)):
         # Sort by confidence descending
-        sorted_preds = sorted(preds, key=lambda x: x[1], reverse=True) if preds else []
+        sorted_preds = sorted(preds, key=lambda x: x.get("confidence", 0), reverse=True) if preds else []
         if len(sorted_preds) >= 2:
-            margin = sorted_preds[0][1] - sorted_preds[1][1]
+            margin = sorted_preds[0]["confidence"] - sorted_preds[1]["confidence"]
         else:
             margin = 1.0  # already certain
         scores[i] += AL_WEIGHT_MARGIN * (1.0 - margin)  # low margin -> high priority
 
     # 2. Perch surprise  — top Perch pred not in known_classes
     for i, preds in enumerate(perch_preds):
-        sorted_preds = sorted(preds, key=lambda x: x[1], reverse=True) if preds else []
+        sorted_preds = sorted(preds, key=lambda x: x.get("confidence", 0), reverse=True) if preds else []
         if sorted_preds:
-            top_species = sorted_preds[0][0]
+            top_species = sorted_preds[0].get("species", "")
             if top_species not in known_classes:
                 scores[i] += AL_WEIGHT_SURPRISE
 
@@ -567,7 +567,7 @@ def main():
             for clip in queue:
                 max_conf = max(
                     clip.get("source_conf") or 0,
-                    max((c for _, c in clip.get("perch_top10", [])), default=0)
+                    max((d.get("confidence", 0) for d in clip.get("perch_top10", [])), default=0)
                 )
                 if max_conf >= st.session_state.batch_threshold:
                     # Auto-confirm
@@ -670,14 +670,18 @@ def main():
             perch_top = clip.get("perch_top10", [])
             if perch_top:
                 # Show species with confidence bars
-                for species, conf in perch_top[:5]:
+                for entry in perch_top[:5]:
+                    species = entry.get("species", "?")
+                    conf = entry.get("confidence", 0)
                     cols = st.columns([3, 1, 2])
                     cols[0].text(species[:40])
                     cols[1].text(f"{conf*100:.1f}%")
                     cols[2].progress(conf)
                 if len(perch_top) > 5:
                     with st.expander(f"+{len(perch_top)-5} more predictions"):
-                        for species, conf in perch_top[5:]:
+                        for entry in perch_top[5:]:
+                            species = entry.get("species", "?")
+                            conf = entry.get("confidence", 0)
                             cols = st.columns([3, 1])
                             cols[0].text(species[:40])
                             cols[1].text(f"{conf*100:.1f}%")
