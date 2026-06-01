@@ -87,9 +87,9 @@ TRACKS = {
         "comparison_model": None,
     },
     "insect_species": {
-        "classes": None,  # dynamic: all species labels in confirmed clips
+        "classes": None,  # dynamic: all species labels in confirmed clips (all taxa)
         "min_samples": 3,
-        "description": "Multi-species insect/frog classifier (source='insectnet'/'public')",
+        "description": "General multi-species classifier — all taxa, all sources",
         "comparison_model": None,
     },
 }
