@@ -663,20 +663,14 @@ def main():
                 # Load common name cache + tag map
                 common_names = load_common_names()
                 species_to_tag, _ = build_tag_lookup()
-                # Show Perch's predictions — common name if known, else scientific
-                st.caption(f"📖 {len(common_names)} common names loaded")  # debug indicator
+                st.caption(f"📖 Common names loaded: {len(common_names)}")
                 for entry in perch_top[:5]:
                     species = entry.get("species", "?")
                     conf = entry.get("confidence", 0)
-                    # Check common name cache, then tag map, then fallback to scientific
-                    common = common_names.get(species, "")
-                    if not common:
-                        common = species_to_tag.get(species, "")
-                    display = common[:35] if common else species[:35]
-                    if common and common != species:
-                        display += f"  ({species[:25]})"
+                    # Common name lookup
+                    display = common_names.get(species) or species_to_tag.get(species) or species
                     cols = st.columns([3, 1, 2])
-                    cols[0].text(display)
+                    cols[0].text(display[:40])
                     cols[1].text(f"{conf*100:.1f}%")
                     cols[2].progress(conf)
                 if len(perch_top) > 5:
