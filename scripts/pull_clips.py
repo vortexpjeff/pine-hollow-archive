@@ -557,22 +557,14 @@ def main():
             
             # Extract confidence from BirdNET filename pattern.
             # Format: Species-XX-YYYY-MM-DD-birdnet-HH:MM:SS.mp3
-            # Species may contain hyphens (e.g. Black-and-white_Warbler),
-            # so we parse from the right: find the numeric token before the date.
+            # Confidence (XX) is always the first 2-digit numeric token.
             try:
-                # Split filename into tokens
-                tokens = filename.rsplit(".", 1)[0].split("-")  # drop .mp3 then split
-                # The confidence token is the first purely numeric token when scanning
-                # right-to-left, skipping the date/time components.
+                tokens = filename.rsplit(".", 1)[0].split("-")
                 conf = None
-                for token in reversed(tokens):
-                    if token.isdigit():
-                        # This could be the confidence or part of the date
-                        # Confidence is typically 2 digits (0-99), date parts are 4 or 2 digits
-                        val = int(token)
-                        if val <= 100:
-                            conf = val / 100.0
-                            break
+                for token in tokens:
+                    if token.isdigit() and len(token) == 2:
+                        conf = int(token) / 100.0
+                        break
             except (ValueError, IndexError):
                 conf = None
             
