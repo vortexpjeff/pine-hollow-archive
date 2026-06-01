@@ -369,6 +369,9 @@ def train_classifier(X, y, track_config):
     # For multi-label: accumulate per-class predictions as binary matrices
     all_y_true_bin = []
     all_y_prob_arr = []
+    # For single-label: accumulate fold predictions for honest CV metrics
+    all_y_true_sl = []
+    all_y_pred_sl = []
 
     for fold, (train_idx, test_idx) in enumerate(kf.split(X)):
         X_train, X_test = X[train_idx], X[test_idx]
@@ -398,13 +401,17 @@ def train_classifier(X, y, track_config):
             fold_f1 = f1_score(y_test_bin, y_pred_bin, average='macro',
                                zero_division=0)
         else:
-            y_train, y_test = y[train_idx], y[test_idx]
+            y_train, y_test_fold = y[train_idx], y[test_idx]
             clf.fit(X_train_scaled, y_train)
 
             y_prob = clf.predict_proba(X_test_scaled)
             y_pred = clf.predict(X_test_scaled)
 
-            fold_f1 = f1_score(y_test, y_pred, average='weighted',
+            # Accumulate CV-fold predictions for honest metrics
+            all_y_true_sl.extend(y_test_fold)
+            all_y_pred_sl.extend(y_pred)
+
+            fold_f1 = f1_score(y_test_fold, y_pred, average='weighted',
                                zero_division=0)
 
         fold_metrics.append(fold_f1)
@@ -457,18 +464,12 @@ def train_classifier(X, y, track_config):
         print(f"\n  CV Macro F1: {macro_f1:.4f} "
               f"(±{np.std(fold_metrics):.4f})")
     else:
-        # Single-label path: use classification_report for per-class F1
-        # This path needs fold-level y_true/y_pred accumulation from
-        # the single-label folds above. For now, we rely on the fold_metrics.
-        # (bird46 and chicken tracks aren't multi-label yet — they still
-        #  use the single-label path from above.)
-        #
-        # Reconstruct from the fold loop: we need y_true/y_pred collected.
-        # Since the fold loop above only stores per-fold F1, we compute
-        # final model metrics directly.
-        final_preds = final_clf.predict(X_scaled) if not is_multilabel else None
-        report = classification_report(y, final_preds, output_dict=True,
-                                       zero_division=0) if not is_multilabel else {}
+        # Single-label path: per-class metrics from accumulated CV predictions
+        if all_y_true_sl:
+            report = classification_report(all_y_true_sl, all_y_pred_sl,
+                                           output_dict=True, zero_division=0)
+        else:
+            report = {}
 
         print(f"\n  CV Weighted F1: {np.mean(fold_metrics):.4f} "
               f"(±{np.std(fold_metrics):.4f})")
