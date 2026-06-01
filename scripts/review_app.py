@@ -6,6 +6,20 @@ Pine Hollow Bioacoustics Data Factory — Streamlit Review App
 Single-page, single-user verification of audio clips from BirdNET-Pi,
 InsectNet, and Perch 2.0 inference pipeline.
 
+╔══════════════════════════════════════════════════════════════════╗
+║  ⚠️  OPERATOR INVARIANTS — READ BEFORE EDITING OR RUNNING     ║
+╠══════════════════════════════════════════════════════════════════╣
+║  • Skip is an IN-MEMORY queue reorder. It MUST NOT write to    ║
+║    the database. Only Confirm and Delete touch the DB.          ║
+║  • human_tags is populated as a JSON array alongside            ║
+║    comma-separated human_label on every Confirm.                ║
+║  • tag_map.json is the SINGLE source of truth for label        ║
+║    mapping. No hardcoded fallback dicts.                        ║
+║  • The review app produces MULTI-LABEL tags via multiselect.    ║
+║    Downstream consumers must split on commas.                   ║
+║  • Load the pine-hollow-archive skill before operating.         ║
+╚══════════════════════════════════════════════════════════════════╝
+
 Run with:
     streamlit run review_app.py
 
@@ -782,6 +796,11 @@ def main():
             # Only confirmed and deleted touch the database.
             # Skip is a pure in-memory queue reorder — it must NOT write
             # review_status, or load_queue() will permanently drop it on reload.
+            #
+            # INVARIANT: Do NOT add a DB write for the "skipped" action.
+            # This was a bug fixed June 1, 2026. Skipped clips would vanish
+            # from the queue on the next Load Queue because load_queue()
+            # filters WHERE review_status = 'unreviewed'.
             if action in ("confirmed", "deleted"):
                 conn = get_db()
                 human_label = None

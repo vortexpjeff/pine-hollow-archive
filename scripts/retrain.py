@@ -6,6 +6,20 @@ Trains per-track classifier heads on frozen Perch 2.0 embeddings (1,536-dim)
 using confirmed/corrected labels from the archive. OneVsRest LogisticRegression
 with per-class threshold tuning.
 
+╔══════════════════════════════════════════════════════════════════╗
+║  ⚠️  OPERATOR INVARIANTS — READ BEFORE EDITING OR RUNNING     ║
+╠══════════════════════════════════════════════════════════════════╣
+║  • Multi-label is auto-detected via isinstance(y[0], list).    ║
+║    Do NOT hardcode single-label assumptions.                   ║
+║  • human_label is COMMA-SEPARATED from the review app          ║
+║    multiselect. Always split on comma before matching.         ║
+║  • human_tags is a JSON array (preferred source).              ║
+║  • BirdNET-reviewed clips ARE the background negatives.        ║
+║  • score_all_clips is SCOPED per track source.                 ║
+║  • This script trains on Perch embeddings, NOT BirdNET logits. ║
+║  • Load the pine-hollow-archive skill before operating.        ║
+╚══════════════════════════════════════════════════════════════════╝
+
 Usage:
     python3 retrain.py --track insectnet                   # retrain a specific track
     python3 retrain.py --track chicken --version v0.2.0    # with explicit version
@@ -223,6 +237,12 @@ def load_training_data(track_name):
 
         # Phase 2: birdnet clips → background negatives
         # These are real Pine Hollow field audio with no insect content.
+        # Every birdnet-reviewed clip is a confirmed bird vocalization,
+        # proven non-insect by BirdNET's bird-focused head.
+        #
+        # INVARIANT: Do NOT use silence or synthetic noise for background.
+        # Real field audio from the same mic/environment is essential for
+        # the model to learn what Pine Hollow sounds like without insects.
         bg_rows = conn.execute("""
             SELECT perch_embedding FROM clips
             WHERE review_status IN ('confirmed', 'corrected')
@@ -347,7 +367,13 @@ def train_classifier(X, y, track_config):
         else:
             classes = sorted(set(y))
 
-    # Detect multi-label format
+    # Detect multi-label format — automatic, do not hardcode.
+    # isinstance(y[0], list) is True when y is list-of-lists (insectnet)
+    # and False when y is list of strings (chicken, bird46).
+    #
+    # INVARIANT: Do NOT replace with a hardcoded track_name check.
+    # Multi-label detection must remain automatic so the same
+    # train_classifier function works for all tracks.
     is_multilabel = isinstance(y[0], list)
 
     # Convert to binary indicator matrix

@@ -5,6 +5,24 @@ Pine Hollow Bioacoustics Data Factory — Phase 0 Pull + Embed Pipeline
 Pulls new clips from BirdNET-Pi, runs Perch 2.0 embedding extraction,
 stores everything in the archive SQLite database.
 
+╔══════════════════════════════════════════════════════════════════╗
+║  ⚠️  OPERATOR INVARIANTS — READ BEFORE EDITING OR RUNNING     ║
+╠══════════════════════════════════════════════════════════════════╣
+║  • BirdNET-Pi runs 24/7. NEVER restart, kill, or modify its    ║
+║    services, processes, or model files. We only PULL from it.   ║
+║  • Sync state uses INDEX-BASED slicing, not flag-walking.       ║
+║    If the last-synced file is missing from Pi, we fall back     ║
+║    to all files with a warning. INSERT OR IGNORE prevents       ║
+║    duplicate processing.                                        ║
+║  • Perch embeddings are 1,536-dim float32 stored as BLOBs.      ║
+║    The classification head is UNCALIBRATED — only embeddings.   ║
+║  • Audio normalization: save orig_dtype BEFORE casting to       ║
+║    float32. The old code had this bug (fixed May 31).           ║
+║  • --limit does NOT update sync_state by design.                ║
+║  • Verify all 4 BirdNET services active after ANY Pi operation. ║
+║  • Load the pine-hollow-archive skill before operating.         ║
+╚══════════════════════════════════════════════════════════════════╝
+
 Usage:
     python3 pull_clips.py                    # pull new clips incrementally
     python3 pull_clips.py --backlog           # pull ALL clips (first run)
@@ -219,6 +237,11 @@ def discover_birdnet_clips(last_sync_file=None):
     except ValueError:
         # Last-synced file was deleted from the Pi. Fall back to all files —
         # INSERT OR IGNORE in the DB prevents duplicate processing.
+        #
+        # INVARIANT: Do NOT silently return an empty list. A missing cutoff
+        # file means we lost our place, not that there's nothing to sync.
+        # Falling back to all files is safe (INSERT OR IGNORE is idempotent).
+        # Failing silently would cause incremental pulls to stop forever.
         print(f"  ⚠ Last synced file not found on Pi (may have been deleted): {last_sync_file}",
               file=sys.stderr)
         print(f"  → Syncing all {len(all_entries)} files (INSERT OR IGNORE prevents duplicates)",
@@ -261,6 +284,8 @@ def discover_insectnet_clips(last_sync_file=None):
         cutoff_idx = all_entries.index(last_sync_file)
         return all_entries[cutoff_idx + 1:]
     except ValueError:
+        # INVARIANT: same logic as discover_birdnet_clips — never return
+        # empty list silently. Fall back to all files with warning.
         print(f"  ⚠ Last synced file not found on Pi (may have been deleted): {last_sync_file}",
               file=sys.stderr)
         print(f"  → Syncing all {len(all_entries)} files (INSERT OR IGNORE prevents duplicates)",
