@@ -195,12 +195,12 @@ def load_training_data(track_name):
         # they're confirmed bird vocalizations, proven non-insect by BirdNET.
         valid_classes = set(TRACKS["insectnet"]["classes"])
 
-        # Phase 1: insectnet clips → multi-label active classes
+        # Phase 1: insectnet + public clips → multi-label active classes
         insect_rows = conn.execute("""
             SELECT perch_embedding, human_label, human_tags, source_label
             FROM clips
             WHERE review_status IN ('confirmed', 'corrected')
-            AND source = 'insectnet'
+            AND source IN ('insectnet', 'public')
             AND perch_embedding IS NOT NULL
         """).fetchall()
 
