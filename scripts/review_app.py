@@ -45,7 +45,15 @@ import streamlit as st
 
 ARCHIVE_PATH = Path("/mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive")
 DB_PATH = ARCHIVE_PATH / "archive.db"
+COMMON_NAMES_PATH = ARCHIVE_PATH / "common_names.json"
 TAG_MAP_PATH = ARCHIVE_PATH / "tag_map.json"
+
+# Load common name cache (scientific → common)
+def load_common_names():
+    if COMMON_NAMES_PATH.exists():
+        with open(COMMON_NAMES_PATH) as f:
+            return json.load(f)
+    return {}
 
 # Load tag map
 def load_tag_map():
@@ -652,15 +660,20 @@ def main():
             perch_top = clip.get("perch_top10", [])
             if perch_top:
                 # Load tag lookup for common names
+                # Load common name cache + tag map
+                common_names = load_common_names()
                 species_to_tag, _ = build_tag_lookup()
-                # Show Perch's predictions — scientific name + common if known
+                # Show Perch's predictions — common name if known, else scientific
                 for entry in perch_top[:5]:
                     species = entry.get("species", "?")
                     conf = entry.get("confidence", 0)
-                    common = species_to_tag.get(species, "")
-                    display = species[:35]
-                    if common:
-                        display += f"  ({common})"
+                    # Check common name cache, then tag map, then fallback to scientific
+                    common = common_names.get(species, "")
+                    if not common:
+                        common = species_to_tag.get(species, "")
+                    display = common[:35] if common else species[:35]
+                    if common and common != species:
+                        display += f"  ({species[:25]})"
                     cols = st.columns([3, 1, 2])
                     cols[0].text(display)
                     cols[1].text(f"{conf*100:.1f}%")
