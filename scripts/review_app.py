@@ -441,8 +441,7 @@ def show_sidebar_stats(clip_idx: int, total: int, session_start: float):
         st.markdown("""
         - **Space** — Play/Pause
         - **1** — Confirm
-        - **2** — Correct (opens tag picker)
-        - **3** — Delete (false positive)
+        - **3** — Delete
         - **4** — Skip
         """)
 
@@ -465,8 +464,6 @@ def main():
         st.session_state.session_counts = {
             "confirmed": 0, "corrected": 0, "deleted": 0, "skipped": 0
         }
-    if "show_correct_picker" not in st.session_state:
-        st.session_state.show_correct_picker = False
     if "batch_mode" not in st.session_state:
         st.session_state.batch_mode = False
     if "batch_threshold" not in st.session_state:
@@ -493,7 +490,6 @@ def main():
             st.session_state.queue = load_queue()
             st.session_state.queue_idx = 0
             st.session_state.session_start = time.time()
-            st.session_state.show_correct_picker = False
             st.rerun()
 
     # Auto‑load on first run if queue is empty
@@ -754,21 +750,15 @@ def main():
             confirm_btn = st.button(
                 "✅ Confirm\n[1]", key="confirm_btn",
                 use_container_width=True,
-                help="Accept the source label"
+                help="Save selected tags and advance"
             )
         with btn_col2:
-            correct_btn = st.button(
-                "✏️ Correct\n[2]", key="correct_btn",
-                use_container_width=True,
-                help="Provide a corrected label"
-            )
-        with btn_col3:
             delete_btn = st.button(
                 "🗑️ Delete\n[3]", key="delete_btn",
                 use_container_width=True,
                 help="Mark as false positive"
             )
-        with btn_col4:
+        with btn_col3:
             skip_btn = st.button(
                 "⏭️ Skip\n[4]", key="skip_btn",
                 use_container_width=True,
@@ -779,42 +769,10 @@ def main():
         action = None
         if confirm_btn:
             action = "confirmed"
-        elif correct_btn:
-            # Toggle: current selection becomes editable text
-            st.session_state.show_correct_picker = not st.session_state.show_correct_picker
-            st.rerun()
         elif delete_btn:
             action = "deleted"
         elif skip_btn:
             action = "skipped"
-
-        # If Correct is active, show an editor
-        if st.session_state.get("show_correct_picker", False):
-            current = st.session_state.get("tag_multiselect", [])
-            extra = st.session_state.get("extra_tag", "")
-            combined = list(current)
-            if extra.strip():
-                combined.append(extra.strip())
-            edit_text = st.text_input(
-                "Edit as comma-separated tags:",
-                value=", ".join(combined) if combined else "",
-                key="correct_edit",
-                placeholder="bird, chicken, human_voice",
-            )
-            col_a, col_b = st.columns([1, 3])
-            with col_a:
-                if st.button("✔️ Apply Edit", type="primary"):
-                    conn = get_db()
-                    conn.execute(
-                        "UPDATE clips SET review_status = 'corrected', human_label = ? WHERE id = ?",
-                        (edit_text.strip(), clip["id"])
-                    )
-                    conn.commit()
-                    st.session_state.show_correct_picker = False
-                    st.session_state.queue.pop(queue_idx)
-                    st.rerun()
-            with col_b:
-                st.caption("Edit the comma-separated list above, then click Apply.")
 
         if action:
             conn = get_db()
@@ -847,7 +805,6 @@ def main():
                 st.session_state.queue.append(st.session_state.queue.pop(queue_idx))
             else:
                 st.session_state.queue.pop(queue_idx)
-            st.session_state.show_correct_picker = False
             st.rerun()
 
 
