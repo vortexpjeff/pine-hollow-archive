@@ -186,7 +186,6 @@ def discover_birdnet_clips(last_sync_file=None):
     """Use rsync dry-run to find new BirdNET files on the Pi."""
     print("\n  Discovering BirdNET clips...")
     
-    # Build rsync command
     rsync_cmd = [
         "rsync", "-avzm", "--dry-run",
         "--include=*/", "--include=*.mp3", "--exclude=*",
@@ -202,26 +201,29 @@ def discover_birdnet_clips(last_sync_file=None):
     
     result = subprocess.run(rsync_cmd, env=env, capture_output=True, text=True, timeout=60)
     
-    files = []
-    cutoff_found = last_sync_file is None  # if no cutoff, include all
-    
+    # Collect all .mp3 entries and sort by path (date/species/filename)
+    all_entries = []
     for line in result.stdout.split("\n"):
         line = line.strip()
-        # Skip dirs, headers, summary lines
         if not line or line.endswith("/") or not line.endswith(".mp3"):
             continue
-        
-        # Full path: YYYY-MM-DD/Species/filename.mp3
-        if not cutoff_found:
-            if line == last_sync_file:
-                cutoff_found = True
-            continue  # skip files before the cutoff
-        
-        files.append(line)
+        all_entries.append(line)
+    all_entries.sort()
     
-    # Sort by date embedded in path: YYYY-MM-DD/Species/filename
-    files.sort()
-    return files
+    if last_sync_file is None:
+        return all_entries
+    
+    try:
+        cutoff_idx = all_entries.index(last_sync_file)
+        return all_entries[cutoff_idx + 1:]
+    except ValueError:
+        # Last-synced file was deleted from the Pi. Fall back to all files —
+        # INSERT OR IGNORE in the DB prevents duplicate processing.
+        print(f"  ⚠ Last synced file not found on Pi (may have been deleted): {last_sync_file}",
+              file=sys.stderr)
+        print(f"  → Syncing all {len(all_entries)} files (INSERT OR IGNORE prevents duplicates)",
+              file=sys.stderr)
+        return all_entries
 
 
 def discover_insectnet_clips(last_sync_file=None):
@@ -243,23 +245,27 @@ def discover_insectnet_clips(last_sync_file=None):
     
     result = subprocess.run(rsync_cmd, env=env, capture_output=True, text=True, timeout=60)
     
-    files = []
-    cutoff_found = last_sync_file is None
-    
+    # Collect all .wav entries and sort by path (class/filename)
+    all_entries = []
     for line in result.stdout.split("\n"):
         line = line.strip()
         if not line or line.endswith("/") or not line.endswith(".wav"):
             continue
-        
-        if not cutoff_found:
-            if line == last_sync_file:
-                cutoff_found = True
-            continue
-        
-        files.append(line)
+        all_entries.append(line)
+    all_entries.sort()
     
-    files.sort()
-    return files
+    if last_sync_file is None:
+        return all_entries
+    
+    try:
+        cutoff_idx = all_entries.index(last_sync_file)
+        return all_entries[cutoff_idx + 1:]
+    except ValueError:
+        print(f"  ⚠ Last synced file not found on Pi (may have been deleted): {last_sync_file}",
+              file=sys.stderr)
+        print(f"  → Syncing all {len(all_entries)} files (INSERT OR IGNORE prevents duplicates)",
+              file=sys.stderr)
+        return all_entries
 
 
 # =============================================================================

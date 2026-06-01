@@ -93,30 +93,7 @@ def build_tag_lookup():
         all_tags.add(tag_name)
         for species in tag_info.get("perch_labels", []):
             species_to_tag[species] = tag_name
-    # Fallback: DEFAULT_TAG_MAP is flat {species: tag}, add any not already mapped
-    for species, tag in DEFAULT_TAG_MAP.items():
-        if species not in species_to_tag:
-            species_to_tag[species] = tag
-            all_tags.add(tag)
     return species_to_tag, sorted(all_tags)
-DEFAULT_TAG_MAP = {
-    "Gallus gallus": "chicken",
-    "Chicken_and_rooster": "chicken",
-    "Fowl": "chicken",
-    "Canis latrans": "dog",
-    "Canis familiaris": "dog",
-    "Gastrophryne carolinensis": "frog",
-    "Pseudacris crucifer": "frog",
-    "Rana arvalis": "frog",
-    "Dryophytes chrysoscelis": "frog",
-    "Cicada mordoganensis": "cicada",
-    "Neoxabea bipunctata": "cricket_katydid",
-    "Pterophylla camellifolia": "cricket_katydid",
-    "Apis mellifera": "bee",
-    "Human_voice": "human_voice",
-    "Speech": "human_voice",
-    "Engine": "mechanical",
-}
 
 # Weights for active learning composite score
 AL_WEIGHT_MARGIN = 1.0       # low margin -> uncertain -> high priority
@@ -580,9 +557,12 @@ def main():
                 if max_conf >= st.session_state.batch_threshold:
                     # Auto-confirm
                     conn = get_db()
+                    source_label = clip.get("source_label") or ""
                     conn.execute(
                         "UPDATE clips SET review_status = 'confirmed', "
-                        "human_label = source_label "
+                        "human_label = source_label, "
+                        "human_tags = json_array(source_label), "
+                        "reviewed_at = datetime('now', 'localtime') "
                         "WHERE id = ?", (clip["id"],)
                     )
                     conn.commit()
@@ -795,33 +775,40 @@ def main():
             action = "skipped"
 
         if action:
-            conn = get_db()
-            human_label = None
-            if action == "confirmed":
-                selected = st.session_state.get("tag_multiselect", [])
-                extra = st.session_state.get("extra_tag", "").strip()
-                all_tags = list(selected)
-                if extra and extra not in all_tags:
-                    all_tags.append(extra)
-                if all_tags:
-                    human_label = ", ".join(all_tags)
-                else:
-                    human_label = clip.get("source_label")
-
-            conn.execute(
-                "UPDATE clips SET review_status = ?, human_label = ? "
-                "WHERE id = ?",
-                (action, human_label, clip["id"]),
-            )
-            conn.commit()
-
-            # Update session counts
+            # Update session counts for all actions (including skip)
             counts = st.session_state.session_counts
             counts[action] = counts.get(action, 0) + 1
 
+            # Only confirmed and deleted touch the database.
+            # Skip is a pure in-memory queue reorder — it must NOT write
+            # review_status, or load_queue() will permanently drop it on reload.
+            if action in ("confirmed", "deleted"):
+                conn = get_db()
+                human_label = None
+                human_tags_json = None
+                if action == "confirmed":
+                    selected = st.session_state.get("tag_multiselect", [])
+                    extra = st.session_state.get("extra_tag", "").strip()
+                    all_tags = list(selected)
+                    if extra and extra not in all_tags:
+                        all_tags.append(extra)
+                    if all_tags:
+                        human_label = ", ".join(all_tags)
+                        human_tags_json = json.dumps(all_tags)
+                    else:
+                        human_label = clip.get("source_label")
+                        human_tags_json = json.dumps([clip.get("source_label")])
+                conn.execute(
+                    "UPDATE clips SET review_status = ?, human_label = ?, "
+                    "human_tags = ?, reviewed_at = datetime('now', 'localtime') "
+                    "WHERE id = ?",
+                    (action, human_label, human_tags_json, clip["id"]),
+                )
+                conn.commit()
+
             # Move to next clip
             if action == "skipped":
-                # Put skipped clip at end of queue
+                # Put skipped clip at end of queue (in-memory only)
                 st.session_state.queue.append(st.session_state.queue.pop(queue_idx))
             else:
                 st.session_state.queue.pop(queue_idx)
