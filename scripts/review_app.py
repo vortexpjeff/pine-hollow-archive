@@ -657,14 +657,18 @@ def main():
             if perch_top:
                 # Load tag lookup for common names
                 species_to_tag, _ = build_tag_lookup()
+                source_label = clip.get("source_label", "")
                 # Show species with confidence bars
                 for entry in perch_top[:5]:
                     species = entry.get("species", "?")
                     conf = entry.get("confidence", 0)
                     common = species_to_tag.get(species, "")
-                    display = f"{species[:30]}"
+                    display = f"{species[:28]}"
                     if common:
                         display += f"  ({common})"
+                    # Always show source (BirdNET) label as reference if different
+                    if source_label and species.lower() != source_label.lower().replace("_", " "):
+                        display += f"  | src: {source_label[:15]}"
                     cols = st.columns([3, 1, 2])
                     cols[0].text(display)
                     cols[1].text(f"{conf*100:.1f}%")
@@ -675,7 +679,7 @@ def main():
                             species = entry.get("species", "?")
                             conf = entry.get("confidence", 0)
                             common = species_to_tag.get(species, "")
-                            display = f"{species[:30]}"
+                            display = f"{species[:28]}"
                             if common:
                                 display += f"  ({common})"
                             cols = st.columns([3, 1])
