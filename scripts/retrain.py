@@ -176,12 +176,11 @@ def load_training_data(track_name):
             y.append("chicken" if is_chicken else "not_chicken")
     
     elif track_name == "insectnet":
-        # Multi-class: use human_label if it matches an InsectNet class,
-        # or try to infer from the tag map
-        
+        # Multi-class: only InsectNet-sourced clips, using human_label or source_label
         rows = conn.execute("""
             SELECT perch_embedding, human_label, source_label FROM clips
             WHERE review_status IN ('confirmed', 'corrected')
+            AND source = 'insectnet'
             AND perch_embedding IS NOT NULL
         """).fetchall()
         
@@ -210,7 +209,9 @@ def load_training_data(track_name):
             y.append(resolved)
     
     elif track_name == "bird46":
-        # Dynamic multi-species: use source_label from BirdNET high-confidence clips
+        # Dynamic multi-species: use source_label from BirdNET high-confidence clips.
+        # If the human_label is comma-separated (e.g. "bird, chicken"), take the
+        # first tag that doesn't look like a compound.
         rows = conn.execute("""
             SELECT perch_embedding, human_label, source_label, source_conf FROM clips
             WHERE review_status IN ('confirmed', 'corrected')
@@ -220,14 +221,25 @@ def load_training_data(track_name):
         
         X, y = [], []
         for r in rows:
-            label = (r["human_label"] or r["source_label"] or "").strip()
-            if not label:
+            raw = (r["human_label"] or r["source_label"] or "").strip()
+            if not raw:
                 continue
+            # If human_label is comma-separated tags, take the first plausible one
+            if "," in raw:
+                parts = [p.strip() for p in raw.split(",")]
+                # Prefer a part that looks like a species (two words) or is in the
+                # default tag map
+                label = parts[0]  # fallback
+                for p in parts:
+                    if " " in p and p[0].isupper():
+                        label = p
+                        break
+                raw = label
             emb = np.frombuffer(r["perch_embedding"], dtype=np.float32)
             if emb.shape != (1536,):
                 continue
             X.append(emb)
-            y.append(label)
+            y.append(raw)
     
     else:
         raise ValueError(f"Unknown track: {track_name}")
@@ -518,10 +530,23 @@ def list_tracks():
     conn = get_db()
     print("\nAvailable tracks:")
     for name, config in TRACKS.items():
-        # Count confirmed clips
-        count = conn.execute(
-            "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected')"
-        ).fetchone()[0]
+        # Count confirmed clips relevant to this track
+        if name == "insectnet":
+            count = conn.execute(
+                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected') AND source='insectnet'"
+            ).fetchone()[0]
+        elif name == "chicken":
+            count = conn.execute(
+                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected') AND human_label IS NOT NULL"
+            ).fetchone()[0]
+        elif name == "bird46":
+            count = conn.execute(
+                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected') AND source='birdnet'"
+            ).fetchone()[0]
+        else:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected')"
+            ).fetchone()[0]
         # Latest version
         latest = sorted(MODELS_DIR.glob(f"{name}_v*.joblib"))
         version = latest[-1].stem if latest else "not trained"

@@ -39,6 +39,24 @@ from typing import Optional
 import numpy as np
 import streamlit as st
 
+# ── Streamlit version compatibility shims ─────────────────────────
+ST_MAJOR, ST_MINOR = map(int, st.__version__.split(".")[:2])
+HAS_TOAST = (ST_MAJOR, ST_MINOR) >= (1, 35)
+HAS_BORDER = (ST_MAJOR, ST_MINOR) >= (1, 35)
+
+def _toast(msg, icon="✅"):
+    """Safe toast wrapper — falls back to success/info on older Streamlit."""
+    if HAS_TOAST:
+        st.toast(msg, icon=icon)
+    else:
+        st.success(msg)
+
+def _container(**kwargs):
+    """Safe container wrapper — strips `border` kwarg on older Streamlit."""
+    if not HAS_BORDER:
+        kwargs.pop("border", None)
+    return st.container(**kwargs)
+
 # ──────────────────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────────────────
@@ -114,7 +132,7 @@ AL_WEIGHT_CHRONO = 0.1       # oldest first as tiebreaker
 def get_db() -> sqlite3.Connection:
     """Return a read‑only connection (with row factory)."""
     if "db" not in st.session_state:
-        conn = sqlite3.connect(str(DB_PATH), uri=True, check_same_thread=False)
+        conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
         conn.row_factory = sqlite3.Row
         st.session_state.db = conn
     return st.session_state.db
@@ -531,7 +549,7 @@ def main():
                             ["python3", "scripts/retrain.py", "--track", "insectnet", "--compare"],
                             cwd=str(ARCHIVE_PATH), capture_output=True, text=True, timeout=120
                         )
-                    st.toast("InsectNet retrained!", icon="✅")
+                    _toast("InsectNet retrained!", icon="✅")
                     st.rerun()
             with col_b:
                 if st.button("🔄 Retrain All Tracks", use_container_width=True):
@@ -541,7 +559,7 @@ def main():
                             ["python3", "scripts/retrain.py", "--all-tracks"],
                             cwd=str(ARCHIVE_PATH), capture_output=True, text=True, timeout=300
                         )
-                    st.toast("All tracks retrained!", icon="✅")
+                    _toast("All tracks retrained!", icon="✅")
                     st.rerun()
         
         show_batch_controls()
@@ -575,7 +593,7 @@ def main():
             st.session_state.queue_idx = 0
             st.session_state.running_batch = False
             if batch_accepted:
-                st.toast(f"Batch auto‑accepted {batch_accepted} clips above {st.session_state.batch_threshold:.0%}", icon="✅")
+                _toast(f"Batch auto‑accepted {batch_accepted} clips above {st.session_state.batch_threshold:.0%}", icon="✅")
             st.rerun()
 
     # ── Current clip ──────────────────────────────────────────────
@@ -621,7 +639,7 @@ def main():
         st.markdown("### 🏷️ Labels & Tags")
 
         # ── Metadata box ──────────────────────────────────────────
-        with st.container(border=True):
+        with _container(border=True):
             meta_col1, meta_col2 = st.columns(2)
             meta_col1.metric("Clip ID", f"#{clip['id']}")
             source_display = clip.get("source", "unknown")
@@ -637,7 +655,7 @@ def main():
         source_conf = clip.get("source_conf")
         source = clip.get("source", "")
         if source_label:
-            with st.container(border=True):
+            with _container(border=True):
                 cols = st.columns([3, 1])
                 if source == "birdnet":
                     cols[0].markdown(f"**BirdNET:** {source_label}")
@@ -655,7 +673,7 @@ def main():
                         cols[1].metric("Confidence", format_confidence(source_conf))
         
         # ── Perch top-10 ──────────────────────────────────────────
-        with st.container(border=True):
+        with _container(border=True):
             st.markdown("**Perch 2.0 — Top Predictions**")
             perch_top = clip.get("perch_top10", [])
             if perch_top:
@@ -722,7 +740,7 @@ def main():
         tag_options = [t for t in tag_options if t]
         default_selection = [t for t in default_selection if t]
 
-        with st.container(border=True):
+        with _container(border=True):
             st.markdown("**🏷️ Select tags that apply**")
             selected_tags = st.multiselect(
                 "Tags for this clip",

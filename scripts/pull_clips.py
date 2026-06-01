@@ -61,8 +61,13 @@ PERCH_DURATION_S = 5.0
 def setup_askpass():
     """Create the SSH_ASKPASS script for password auth."""
     content = "#!/bin/sh\necho '{}'\n".format(PI_PASS)
-    ASKPASS_PATH.write_text(content)
-    ASKPASS_PATH.chmod(0o755)
+    try:
+        ASKPASS_PATH.write_text(content)
+        ASKPASS_PATH.chmod(0o755)
+        return True
+    except OSError as e:
+        print(f"  ⚠ Could not create SSH askpass script: {e}", file=sys.stderr)
+        return False
 
 def pi_cmd(command):
     """Run a command on the Pi via SSH with password auth."""
@@ -295,11 +300,12 @@ class PerchEmbedder:
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         
+        orig_dtype = audio.dtype
         audio = audio.astype(np.float32)
-        if audio.dtype in (np.int16,):
-            audio = audio / 32768.0
-        elif audio.dtype in (np.int32,):
-            audio = audio / 2147483648.0
+        # Normalize based on original dtype (done AFTER casting so we get float audio)
+        if np.issubdtype(orig_dtype, np.integer):
+            orig_max = float(np.iinfo(orig_dtype).max)
+            audio = audio / orig_max
         
         # Center-crop or pad to 160k samples
         target = PERCH_TARGET_SAMPLES
@@ -394,7 +400,10 @@ def main():
     print("=" * 60)
     
     # Setup
-    setup_askpass()
+    if not setup_askpass():
+        print("  ⚠ SSH askpass setup failed — cannot connect to Pi.", file=sys.stderr)
+        if not args.dry_run:
+            sys.exit(1)
     db = ArchiveDB(DB_PATH)
     
     # Load Perch
@@ -448,8 +457,22 @@ def main():
             # Extract source audio
             source_path = local_path if local_path else temp_raw
             
-            # Convert to 5s @ 32kHz WAV
-            if not args.perch_only:
+            # Convert to 5s @ 32kHz WAV — unless we're re-processing an existing WAV
+            if args.perch_only:
+                # When running perch-only, the source_path should already be a
+                # convertible audio file. We still need the converted 5s/32kHz WAV.
+                if source_path.suffix.lower() != ".wav":
+                    ok, duration = convert_to_5s_32khz(source_path, temp_wav)
+                    if not ok:
+                        db.mark_failed(clip_id, "ffmpeg conversion failed")
+                        stats["failed"] += 1
+                        return
+                    clip_data["duration_s"] = duration
+                else:
+                    # Already a WAV — use as-is (Perch will handle resampling)
+                    temp_wav = source_path
+                    clip_data["duration_s"] = clip_data.get("duration_s", 0)
+            else:
                 ok, duration = convert_to_5s_32khz(source_path, temp_wav)
                 if not ok:
                     db.mark_failed(clip_id, "ffmpeg conversion failed")
@@ -532,9 +555,24 @@ def main():
             species = parts[1]
             filename = parts[-1]
             
-            # Extract confidence from filename: Species-XX-...mp3
+            # Extract confidence from BirdNET filename pattern.
+            # Format: Species-XX-YYYY-MM-DD-birdnet-HH:MM:SS.mp3
+            # Species may contain hyphens (e.g. Black-and-white_Warbler),
+            # so we parse from the right: find the numeric token before the date.
             try:
-                conf = int(filename.split("-")[1]) / 100.0
+                # Split filename into tokens
+                tokens = filename.rsplit(".", 1)[0].split("-")  # drop .mp3 then split
+                # The confidence token is the first purely numeric token when scanning
+                # right-to-left, skipping the date/time components.
+                conf = None
+                for token in reversed(tokens):
+                    if token.isdigit():
+                        # This could be the confidence or part of the date
+                        # Confidence is typically 2 digits (0-99), date parts are 4 or 2 digits
+                        val = int(token)
+                        if val <= 100:
+                            conf = val / 100.0
+                            break
             except (ValueError, IndexError):
                 conf = None
             
