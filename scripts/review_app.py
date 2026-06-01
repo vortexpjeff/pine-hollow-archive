@@ -52,6 +52,7 @@ from typing import Optional
 
 import numpy as np
 import streamlit as st
+from schema_hardening import ensure_review_hardening_schema
 
 # ── Streamlit version compatibility shims ─────────────────────────
 ST_MAJOR, ST_MINOR = map(int, st.__version__.split(".")[:2])
@@ -121,16 +122,40 @@ AL_WEIGHT_CHRONO = 0.1       # oldest first as tiebreaker
 
 
 def get_db() -> sqlite3.Connection:
-    """Return a read‑only connection (with row factory)."""
+    """Return a connection (with row factory) and ensure audit schema exists."""
     if "db" not in st.session_state:
         conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        ensure_review_hardening_schema(conn)
         st.session_state.db = conn
     return st.session_state.db
 
 
 def get_cursor() -> sqlite3.Cursor:
     return get_db().cursor()
+
+
+def record_label_event(conn, clip_id, labels, source, action, confidence=None, reviewer="Jeffrey", notes=None, model_version=None):
+    """Append audit events. Labels are facts-with-provenance, not overwrites."""
+    labels = labels or [None]
+    acoustic = {"background", "cicada_drone", "cricket_katydid", "frog",
+                "grasshopper", "bee", "dog", "chicken",
+                "human_voice", "mechanical", "wind_rain", "not_chicken"}
+    for label in labels:
+        label_type = None
+        if label:
+            low = label.lower()
+            if low in acoustic:
+                label_type = "acoustic_class"
+            elif " " in label or "_" in label:
+                label_type = "species"
+            else:
+                label_type = "tag"
+        conn.execute("""
+            INSERT INTO label_events
+            (clip_id, label, label_type, source, reviewer, confidence, evidence, action, model_version, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (clip_id, label, label_type, source, reviewer, confidence, "audio_review", action, model_version, notes))
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -223,7 +248,7 @@ def load_queue(progress_callback=None):
     rows = cur.execute("""
         SELECT id, file_path, source, source_label, source_conf,
                perch_top10, perch_top50, perch_embedding,
-               duration_s, recorded_at, pulled_at
+               duration_s, recorded_at, pulled_at, model_version, model_pred, model_conf
         FROM clips
         WHERE review_status = 'unreviewed' AND processing_status = 'done'
         ORDER BY pulled_at ASC
@@ -307,15 +332,25 @@ def generate_spectrogram(file_path: Path, nfft=2048, hop_length=512) -> Optional
     import matplotlib.pyplot as plt
     from scipy import signal as scipy_signal
 
+    def normalize_audio(data):
+        """Convert int or float audio to mono float32 in roughly [-1, 1]."""
+        if data.ndim > 1:
+            data = data.mean(axis=1)  # mono mix; this may convert ints to float
+        if np.issubdtype(data.dtype, np.integer):
+            return data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
+        data = data.astype(np.float32)
+        peak = float(np.max(np.abs(data))) if data.size else 0.0
+        if peak > 1.0:
+            data = data / peak
+        return data
+
     try:
         fp = str(file_path)
         # Try scipy.io.wavfile for .wav
         if file_path.suffix.lower() in (".wav",):
             from scipy.io import wavfile
             rate, data = wavfile.read(fp)
-            if data.ndim > 1:
-                data = data.mean(axis=1)  # mono mix
-            data = data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
+            data = normalize_audio(data)
         else:
             # For .mp3 use ffmpeg subprocess (librosa is broken in this env)
             import subprocess
@@ -329,7 +364,7 @@ def generate_spectrogram(file_path: Path, nfft=2048, hop_length=512) -> Optional
                 )
                 from scipy.io import wavfile
                 rate, data = wavfile.read(tmp_path)
-                data = data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
+                data = normalize_audio(data)
             finally:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
@@ -429,6 +464,7 @@ def show_sidebar_stats(clip_idx: int, total: int, session_start: float):
         col1.metric("✅ Confirm", counts.get("confirmed", 0))
         col2.metric("🗑️ Deleted", counts.get("deleted", 0))
         col1.metric("⏭️ Skipped", counts.get("skipped", 0))
+        col2.metric("🔎 2nd pass", counts.get("needs_second_pass", 0))
 
         st.markdown("---")
         st.markdown("### ⌨️ Shortcuts")
@@ -471,7 +507,8 @@ def main():
         st.session_state.session_start = time.time()
     if "session_counts" not in st.session_state:
         st.session_state.session_counts = {
-            "confirmed": 0, "corrected": 0, "deleted": 0, "skipped": 0
+            "confirmed": 0, "corrected": 0, "deleted": 0, "skipped": 0,
+            "needs_second_pass": 0
         }
     if "batch_mode" not in st.session_state:
         st.session_state.batch_mode = False
@@ -573,12 +610,19 @@ def main():
                             all_tags.append(derived)
                     human_label = ", ".join(all_tags)
                     conn.execute(
-                        "UPDATE clips SET review_status = 'confirmed', "
+                        "UPDATE clips SET review_status = 'needs_second_pass', "
                         "human_label = ?, "
                         "human_tags = json(?), "
+                        "label_certainty = 'possible', "
+                        "review_source = 'batch_auto_accept', "
+                        "review_notes = 'Batch auto-accepted; requires human audit before training.', "
                         "reviewed_at = datetime('now', 'localtime') "
                         "WHERE id = ?", (human_label, json.dumps(all_tags), clip["id"])
                     )
+                    record_label_event(conn, clip["id"], all_tags, "batch_auto_accept",
+                                       "suggest", confidence="possible", reviewer="system",
+                                       notes="Batch auto-accepted; requires human audit before training.",
+                                       model_version=clip.get("model_version"))
                     conn.commit()
                     batch_accepted += 1
                 else:
@@ -587,7 +631,7 @@ def main():
             st.session_state.queue_idx = 0
             st.session_state.running_batch = False
             if batch_accepted:
-                _toast(f"Batch auto‑accepted {batch_accepted} clips above {st.session_state.batch_threshold:.0%}", icon="✅")
+                _toast(f"Batch queued {batch_accepted} clips for second-pass audit above {st.session_state.batch_threshold:.0%}", icon="🔎")
             st.rerun()
 
     # ── Current clip ──────────────────────────────────────────────
@@ -758,8 +802,14 @@ def main():
         class_options = [t for t in class_options if t not in species_options
                         and t not in species_labels]
         
+        # Custom tags added during this session should behave like normal
+        # multiselect options so they can be removed before saving.
+        if "custom_tag_options" not in st.session_state:
+            st.session_state.custom_tag_options = []
+        custom_tag_options = list(st.session_state.custom_tag_options)
+
         # Combined tag list
-        tag_options = species_options + class_options
+        tag_options = species_options + class_options + custom_tag_options
         
         # Default: source_label display + Perch top-1
         default_selection = []
@@ -773,8 +823,21 @@ def main():
         tag_options = [t for t in tag_options if t]
         default_selection = [t for t in default_selection if t]
 
+        def add_custom_tag_to_multiselect():
+            tag = st.session_state.get("extra_tag", "").strip()
+            if not tag:
+                return
+            if tag not in st.session_state.custom_tag_options:
+                st.session_state.custom_tag_options.append(tag)
+            selected = list(st.session_state.get("tag_multiselect", []))
+            if tag not in selected:
+                selected.append(tag)
+            st.session_state.tag_multiselect = selected
+            st.session_state.extra_tag = ""
+
         with _container(border=True):
             st.markdown("**🏷️ Select tags that apply**")
+            st.caption("Model/source labels are suggestions. Training uses only human-reviewed certain/probable labels.")
             selected_tags = st.multiselect(
                 "Tags for this clip",
                 options=tag_options,
@@ -782,17 +845,17 @@ def main():
                 key="tag_multiselect",
                 label_visibility="collapsed",
             )
-            # Custom tag: type and press Enter to add
+            # Custom tag: type and press Enter; it is inserted into the
+            # multiselect above on rerun, where it can be removed.
             extra = st.text_input(
                 "➕ Custom tag",
                 key="extra_tag",
-                placeholder="type something not in the list",
+                placeholder="type something not in the list, then press Enter",
                 label_visibility="collapsed",
+                on_change=add_custom_tag_to_multiselect,
             )
             if selected_tags:
                 display = list(selected_tags)
-                if extra.strip():
-                    display.append(extra.strip())
                 # Show auto-derived tags that will be added on save
                 species_to_tag, _ = build_tag_lookup()
                 derived = set()
@@ -805,9 +868,23 @@ def main():
                 else:
                     st.caption(f"Will save: {', '.join(display)}")
 
+            certainty = st.radio(
+                "Certainty",
+                ["certain", "probable", "possible", "unsure"],
+                index=1,
+                horizontal=True,
+                help="Only certain/probable labels are training-eligible. Possible/unsure goes to second pass.",
+            )
+            review_notes = st.text_area(
+                "Review notes",
+                key="review_notes",
+                placeholder="optional: faint frog under bird call, rain masking, bad clip...",
+                height=70,
+            )
+
         # ── Action buttons ────────────────────────────────────────
         st.markdown("### ⚡ Actions")
-        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
+        btn_col1, btn_col2, btn_col3, btn_col4, btn_col5 = st.columns(5)
 
         with btn_col1:
             confirm_btn = st.button(
@@ -828,6 +905,12 @@ def main():
                 help="Skip for now, revisit later"
             )
         with btn_col4:
+            second_pass_btn = st.button(
+                "🔎 2nd pass", key="second_pass_btn",
+                use_container_width=True,
+                help="Save uncertainty and revisit later; not training-eligible"
+            )
+        with btn_col5:
             undo_btn = False
             if st.session_state.get("undo_clip_id"):
                 undo_btn = st.button(
@@ -843,7 +926,8 @@ def main():
                 conn = get_db()
                 conn.execute(
                     "UPDATE clips SET review_status='unreviewed', human_label=NULL, "
-                    "human_tags=NULL, reviewed_at=NULL WHERE id=?",
+                    "human_tags=NULL, label_certainty=NULL, review_notes=NULL, review_source=NULL, "
+                    "reviewed_at=NULL WHERE id=?",
                     (undo_id,)
                 )
                 conn.commit()
@@ -854,7 +938,7 @@ def main():
                     row = conn.execute(
                         "SELECT id, file_path, source, source_label, source_conf, "
                         "perch_top10, perch_top50, perch_embedding, "
-                        "duration_s, recorded_at, pulled_at "
+                        "duration_s, recorded_at, pulled_at, model_version, model_pred, model_conf "
                         "FROM clips WHERE id=?", (undo_id,)
                     ).fetchone()
                     if row:
@@ -879,13 +963,15 @@ def main():
             action = "deleted"
         elif skip_btn:
             action = "skipped"
+        elif second_pass_btn:
+            action = "needs_second_pass"
 
         if action:
             # Update session counts for all actions (including skip)
             counts = st.session_state.session_counts
             counts[action] = counts.get(action, 0) + 1
 
-            # Only confirmed and deleted touch the database.
+            # Confirm, delete, and needs_second_pass write review state.
             # Skip is a pure in-memory queue reorder — it must NOT write
             # review_status, or load_queue() will permanently drop it on reload.
             #
@@ -893,11 +979,11 @@ def main():
             # This was a bug fixed June 1, 2026. Skipped clips would vanish
             # from the queue on the next Load Queue because load_queue()
             # filters WHERE review_status = 'unreviewed'.
-            if action in ("confirmed", "deleted"):
+            if action in ("confirmed", "deleted", "needs_second_pass"):
                 conn = get_db()
                 human_label = None
                 human_tags_json = None
-                if action == "confirmed":
+                if action in ("confirmed", "needs_second_pass"):
                     selected = st.session_state.get("tag_multiselect", [])
                     extra = st.session_state.get("extra_tag", "").strip()
                     # Translate common-name displays back to raw names.
@@ -931,16 +1017,32 @@ def main():
                     else:
                         human_label = clip.get("source_label")
                         human_tags_json = json.dumps([clip.get("source_label")])
+                saved_status = action
+                saved_certainty = None
+                saved_source = "human"
+                notes = st.session_state.get("review_notes", "")
+                if action == "confirmed":
+                    saved_certainty = certainty
+                    if certainty in ("possible", "unsure"):
+                        saved_status = "needs_second_pass"
+                elif action == "needs_second_pass":
+                    saved_certainty = "unsure"
+                elif action == "deleted":
+                    saved_certainty = "certain"
                 conn.execute(
                     "UPDATE clips SET review_status = ?, human_label = ?, "
-                    "human_tags = ?, reviewed_at = datetime('now', 'localtime') "
+                    "human_tags = ?, label_certainty = ?, review_notes = ?, review_source = ?, "
+                    "reviewed_at = datetime('now', 'localtime') "
                     "WHERE id = ?",
-                    (action, human_label, human_tags_json, clip["id"]),
+                    (saved_status, human_label, human_tags_json, saved_certainty, notes, saved_source, clip["id"]),
                 )
+                record_label_event(conn, clip["id"], json.loads(human_tags_json) if human_tags_json else [],
+                                   saved_source, saved_status, confidence=saved_certainty,
+                                   notes=notes, model_version=clip.get("model_version"))
                 conn.commit()
 
             # Store undo info before moving to next clip
-            if action in ("confirmed", "deleted"):
+            if action in ("confirmed", "deleted", "needs_second_pass"):
                 st.session_state.undo_clip_id = clip["id"]
                 st.session_state.undo_action = action
             

@@ -14,7 +14,7 @@ with per-class threshold tuning.
 ║  • human_label is COMMA-SEPARATED from the review app          ║
 ║    multiselect. Always split on comma before matching.         ║
 ║  • human_tags is a JSON array (preferred source).              ║
-║  • BirdNET-reviewed clips ARE the background negatives.        ║
+║  • Background means environmental sound, not bird vocalization. ║
 ║  • score_all_clips is SCOPED per track source.                 ║
 ║  • This script trains on Perch embeddings, NOT BirdNET logits. ║
 ║  • Load the pine-hollow-archive skill before operating.        ║
@@ -41,6 +41,9 @@ from typing import Optional
 
 import numpy as np
 import joblib
+
+from audit_labels import audit_database, print_result
+from schema_hardening import ensure_review_hardening_schema, training_eligibility_sql
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
@@ -172,6 +175,8 @@ def load_training_data(track_name):
     Returns (embeddings, labels, label_map) or raises if insufficient data.
     """
     conn = get_db()
+    ensure_review_hardening_schema(conn)
+    eligible = training_eligibility_sql()
     _, track_to_tags = load_tag_map()
     
     # Get the universal tags that route to this track
@@ -179,9 +184,9 @@ def load_training_data(track_name):
     
     if track_name == "chicken":
         # Binary: anything tagged "chicken" is positive, everything else is negative
-        chicken_rows = conn.execute("""
+        chicken_rows = conn.execute(f"""
             SELECT perch_embedding, human_label FROM clips
-            WHERE review_status IN ('confirmed', 'corrected')
+            WHERE {eligible}
             AND human_label IS NOT NULL AND human_label != ''
             AND perch_embedding IS NOT NULL
         """).fetchall()
@@ -196,16 +201,15 @@ def load_training_data(track_name):
             y.append("chicken" if is_chicken else "not_chicken")
     
     elif track_name == "insectnet":
-        # Multi-label: InsectNet-sourced clips provide active class labels.
-        # BirdNET-sourced clips serve as "background" negatives —
-        # they're confirmed bird vocalizations, proven non-insect by BirdNET.
+        # Multi-label: InsectNet/public clips provide active class labels.
+        # Background requires explicit reviewed background labels.
         valid_classes = set(TRACKS["insectnet"]["classes"])
 
         # Phase 1: insectnet + public clips → multi-label active classes
-        insect_rows = conn.execute("""
+        insect_rows = conn.execute(f"""
             SELECT perch_embedding, human_label, human_tags, source_label
             FROM clips
-            WHERE review_status IN ('confirmed', 'corrected')
+            WHERE {eligible}
             AND source IN ('insectnet', 'public')
             AND perch_embedding IS NOT NULL
         """).fetchall()
@@ -241,19 +245,20 @@ def load_training_data(track_name):
             X.append(emb)
             y_multilabel.append(active)
 
-        # Phase 2: birdnet clips → background negatives
-        # These are real Pine Hollow field audio with no insect content.
-        # Every birdnet-reviewed clip is a confirmed bird vocalization,
-        # proven non-insect by BirdNET's bird-focused head.
-        #
-        # INVARIANT: Do NOT use silence or synthetic noise for background.
-        # Real field audio from the same mic/environment is essential for
-        # the model to learn what Pine Hollow sounds like without insects.
-        bg_rows = conn.execute("""
+        # Phase 2: reviewed environmental/background clips.
+        # Background means wind/rain/silence/water/mechanical bed, not bird song.
+        # BirdNET clips are bird vocalizations; only include them here if the
+        # human review explicitly tagged background and no target insect/frog tags.
+        bg_rows = conn.execute(f"""
             SELECT perch_embedding FROM clips
-            WHERE review_status IN ('confirmed', 'corrected')
-            AND source = 'birdnet'
+            WHERE {eligible}
             AND perch_embedding IS NOT NULL
+            AND (human_tags LIKE '%"background"%' OR human_label LIKE '%background%')
+            AND COALESCE(human_tags, human_label, '') NOT LIKE '%cicada_drone%'
+            AND COALESCE(human_tags, human_label, '') NOT LIKE '%cricket_katydid%'
+            AND COALESCE(human_tags, human_label, '') NOT LIKE '%frog%'
+            AND COALESCE(human_tags, human_label, '') NOT LIKE '%grasshopper%'
+            AND COALESCE(human_tags, human_label, '') NOT LIKE '%bee%'
             LIMIT 500
         """).fetchall()
 
@@ -267,11 +272,11 @@ def load_training_data(track_name):
             bg_count += 1
 
         if bg_count == 0:
-            print("  ⚠ No birdnet clips available for background training. "
+            print("  ⚠ No reviewed background clips available for background training. "
                   "Background class will have no negative examples.",
                   file=sys.stderr)
         else:
-            print(f"  Loaded {bg_count} birdnet clips as background negatives")
+            print(f"  Loaded {bg_count} reviewed background clips")
 
         # Convert list-of-lists to flat list for compatibility with
         # existing chicken track (which uses single-label strings).
@@ -282,9 +287,9 @@ def load_training_data(track_name):
         # Dynamic multi-species: use source_label from BirdNET high-confidence clips.
         # If the human_label is comma-separated (e.g. "bird, chicken"), take the
         # first tag that doesn't look like a compound.
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT perch_embedding, human_label, source_label, source_conf FROM clips
-            WHERE review_status IN ('confirmed', 'corrected')
+            WHERE {eligible}
             AND source = 'birdnet'
             AND perch_embedding IS NOT NULL
         """).fetchall()
@@ -316,10 +321,10 @@ def load_training_data(track_name):
         # Reads human_tags JSON for binomial species names (Genus_species).
         # Auto-derived broad tags (frog, cicada, etc.) are filtered out.
         # Falls back to source_label for legacy clips without human_tags.
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT perch_embedding, human_label, human_tags, source_label
             FROM clips
-            WHERE review_status IN ('confirmed', 'corrected')
+            WHERE {eligible}
             AND perch_embedding IS NOT NULL
         """).fetchall()
         
@@ -786,6 +791,46 @@ def compare_with_insectnet(model_package):
         print("  For now: Perch-based model metrics are reported above.")
 
 
+def sanity_check_known_clips(model_package, X, y):
+    """Check one known training clip per class against model output.
+
+    This catches class-order bugs like MultiLabelBinarizer alphabetical remapping.
+    """
+    classes = list(model_package["classes"])
+    scaler = model_package["scaler"]
+    clf = model_package["classifier"]
+    thresholds = model_package.get("thresholds", {})
+    is_multilabel = model_package.get("is_multilabel", False)
+
+    failures = []
+    checked = 0
+    for cls in classes:
+        idx = None
+        for i, labels in enumerate(y):
+            label_list = labels if isinstance(labels, list) else [labels]
+            if cls in label_list:
+                idx = i
+                break
+        if idx is None:
+            continue
+
+        proba = clf.predict_proba(scaler.transform(X[idx].reshape(1, -1)))[0]
+        pred = classes[int(np.argmax(proba))]
+        if is_multilabel:
+            ci = classes.index(cls)
+            threshold = thresholds.get(cls, 0.5)
+            ok = proba[ci] >= threshold or pred == cls
+        else:
+            ok = pred == cls
+        checked += 1
+        if not ok:
+            failures.append(f"{cls}->{pred}")
+
+    if failures:
+        raise ValueError("Sanity check failed: " + ", ".join(failures))
+    print(f"  Sanity check passed: {checked} known class clips")
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -793,30 +838,32 @@ def compare_with_insectnet(model_package):
 def list_tracks():
     """Print available tracks and their status."""
     conn = get_db()
+    ensure_review_hardening_schema(conn)
+    eligible = training_eligibility_sql()
     print("\nAvailable tracks:")
     for name, config in TRACKS.items():
-        # Count confirmed clips relevant to this track
+        # Count training-eligible clips relevant to this track
         if name == "insectnet":
             count = conn.execute(
-                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected') AND source='insectnet'"
+                f"SELECT COUNT(*) FROM clips WHERE {eligible} AND source IN ('insectnet', 'public')"
             ).fetchone()[0]
         elif name == "chicken":
             count = conn.execute(
-                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected') AND human_label IS NOT NULL"
+                f"SELECT COUNT(*) FROM clips WHERE {eligible} AND human_label IS NOT NULL"
             ).fetchone()[0]
         elif name == "bird46":
             count = conn.execute(
-                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected') AND source='birdnet'"
+                f"SELECT COUNT(*) FROM clips WHERE {eligible} AND source='birdnet'"
             ).fetchone()[0]
         else:
             count = conn.execute(
-                "SELECT COUNT(*) FROM clips WHERE review_status IN ('confirmed','corrected')"
+                f"SELECT COUNT(*) FROM clips WHERE {eligible}"
             ).fetchone()[0]
         # Latest version
         latest = sorted(MODELS_DIR.glob(f"{name}_v*.joblib"))
         version = latest[-1].stem if latest else "not trained"
         print(f"  {name:<20} {config['description']:<40} {version}")
-        print(f"  {'':20} Confirmed clips: {count}")
+        print(f"  {'':20} Training-eligible clips: {count}")
     conn.close()
 
 
@@ -828,6 +875,7 @@ def main():
     parser.add_argument("--list-tracks", action="store_true", help="Show track status")
     parser.add_argument("--compare", action="store_true", help="Compare with previous model")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be trained")
+    parser.add_argument("--skip-label-audit", action="store_true", help="Bypass pre-retrain label audit (not recommended)")
     args = parser.parse_args()
     
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -849,6 +897,18 @@ def main():
         parser.print_help()
         return
     
+    # Ensure hardening columns exist before audit/training gates run.
+    conn = get_db()
+    ensure_review_hardening_schema(conn)
+    conn.close()
+
+    if not args.skip_label_audit:
+        audit = audit_database(DB_PATH, TAG_MAP_PATH)
+        print_result(audit)
+        if not audit.ok:
+            print("\n  BLOCKED: fix label audit issues before retraining, or pass --skip-label-audit for emergency use.")
+            sys.exit(2)
+
     for track_name in tracks_to_train:
         print(f"\n{'=' * 60}")
         print(f"  Retraining: {track_name}")
@@ -890,6 +950,7 @@ def main():
         version = resolve_version(track_name, args.version)
         track_config["version"] = version
         model_package, report = train_classifier(X, y, track_config)
+        sanity_check_known_clips(model_package, X, y)
         
         # Save artifact
         artifact_path = MODELS_DIR / f"{track_name}_{version}.joblib"
