@@ -658,19 +658,21 @@ def main():
                 # Load tag lookup for common names
                 species_to_tag, _ = build_tag_lookup()
                 source_label = clip.get("source_label", "")
-                # Show species with confidence bars
+                # Show species with confidence bars — common name first
                 for entry in perch_top[:5]:
                     species = entry.get("species", "?")
                     conf = entry.get("confidence", 0)
                     common = species_to_tag.get(species, "")
-                    display = f"{species[:28]}"
-                    if common:
-                        display += f"  ({common})"
-                    # Always show source (BirdNET) label as reference if different
-                    if source_label and species.lower() != source_label.lower().replace("_", " "):
-                        display += f"  | src: {source_label[:15]}"
+                    # Build display: common name first, scientific in parens
+                    label_parts = []
+                    if source_label and source_label.replace("_", " ") not in species:
+                        label_parts.append(source_label.replace("_", " "))
+                    if common and common != source_label.lower().replace("_", " "):
+                        label_parts.append(common)
+                    label_parts.append(species)
+                    display = " | ".join(label_parts)
                     cols = st.columns([3, 1, 2])
-                    cols[0].text(display)
+                    cols[0].text(display[:40])
                     cols[1].text(f"{conf*100:.1f}%")
                     cols[2].progress(conf)
                 if len(perch_top) > 5:
@@ -688,7 +690,7 @@ def main():
             else:
                 st.caption("No Perch predictions for this clip.")
 
-        # ── Normalised tag suggestions ────────────────────────────
+        # ── Tag panel — one place to tag ────────────────────────────
         species_to_tag, all_known_tags = build_tag_lookup()
         source_label = clip.get("source_label", "")
         perch_hints = clip.get("perch_top10", [])
@@ -697,20 +699,21 @@ def main():
         tag_options = []
         default_selection = []
         
+        # Source label (BirdNET/InsectNet) — first in list
+        if source_label:
+            tag_options.append(source_label)
+            default_selection.append(source_label)
+        
         # Perch top-3 species
         if perch_hints:
             for entry in perch_hints[:3]:
                 species = entry.get("species", "")
                 if species and species not in tag_options:
                     tag_options.append(species)
-            # Default: pre-select Perch top-1
-            if perch_hints:
-                default_selection.append(perch_hints[0].get("species", ""))
-        
-        # Source label (BirdNET/InsectNet)
-        if source_label and source_label not in tag_options:
-            tag_options.append(source_label)
-            default_selection.append(source_label)
+            # Also pre-select Perch top-1 if different from source
+            top_species = perch_hints[0].get("species", "")
+            if top_species and top_species not in default_selection:
+                default_selection.append(top_species)
         
         # Broad categories from tag map that match Perch or source
         for species in list(tag_options):
@@ -718,34 +721,30 @@ def main():
             if broad and broad not in tag_options:
                 tag_options.append(broad)
         
-        # Remove empty strings
         tag_options = [t for t in tag_options if t]
         default_selection = [t for t in default_selection if t]
 
         with st.container(border=True):
-            st.markdown("**✏️ Tags — click to select what's in this clip**")
+            st.markdown("**🏷️ Select tags that apply**")
             selected_tags = st.multiselect(
-                "Select labels that apply",
+                "Tags for this clip",
                 options=tag_options,
                 default=default_selection,
                 key="tag_multiselect",
                 label_visibility="collapsed",
             )
-            # Show selected as clean comma text
-            if selected_tags:
-                st.caption(f"Selected: {', '.join(selected_tags)}")
-            
-            # Custom tag input for anything not in the list
-            custom_tag = st.text_input(
-                "➕ Add custom tag",
-                key="custom_tag_input",
-                placeholder="e.g. turkey, goat, owl…",
+            # Custom tag: type and press Enter to add
+            extra = st.text_input(
+                "➕ Custom tag",
+                key="extra_tag",
+                placeholder="type something not in the list",
                 label_visibility="collapsed",
             )
-            if custom_tag.strip():
-                st.caption(f"Custom: {custom_tag.strip()}")
-            
-            st.caption("Confirm saves selected tags. Click Correct to override.")
+            if selected_tags:
+                display = list(selected_tags)
+                if extra.strip():
+                    display.append(extra.strip())
+                st.caption(f"Will save: {', '.join(display)}")
 
         # ── Action buttons ────────────────────────────────────────
         st.markdown("### ⚡ Actions")
@@ -776,41 +775,12 @@ def main():
                 help="Skip for now, revisit later"
             )
 
-        # ── Correct picker (shown after clicking Correct) ─────────
-        if st.session_state.show_correct_picker:
-            with st.container(border=True):
-                st.markdown("**Correct the labels for this clip:**")
-                # Show current multiselect as starting point
-                current_selection = st.session_state.get("tag_multiselect", [])
-                correct_text = st.text_input(
-                    "Edit labels (comma-separated)",
-                    value=", ".join(current_selection) if current_selection else "",
-                    key="correct_tag_input",
-                    placeholder="e.g. bird, chicken, human_voice",
-                    label_visibility="collapsed",
-                )
-                col1, col2 = st.columns([3, 1])
-                with col2:
-                    apply_correct = st.button("✔️ Apply", key="apply_correct",
-                                              type="primary", use_container_width=True)
-                with col1:
-                    st.caption("Type a species name, broad class, or anything in between.")
-                if apply_correct and correct_text.strip():
-                    conn = get_db()
-                    conn.execute(
-                        "UPDATE clips SET review_status = 'corrected', human_label = ? "
-                        "WHERE id = ?", (correct_text.strip(), clip["id"])
-                    )
-                    conn.commit()
-                    st.session_state.show_correct_picker = False
-                    st.session_state.queue.pop(queue_idx)
-                    st.rerun()
-
         # ── Handle button actions ─────────────────────────────────
         action = None
         if confirm_btn:
             action = "confirmed"
         elif correct_btn:
+            # Toggle: current selection becomes editable text
             st.session_state.show_correct_picker = not st.session_state.show_correct_picker
             st.rerun()
         elif delete_btn:
@@ -818,18 +788,43 @@ def main():
         elif skip_btn:
             action = "skipped"
 
+        # If Correct is active, show an editor
+        if st.session_state.get("show_correct_picker", False):
+            current = st.session_state.get("tag_multiselect", [])
+            extra = st.session_state.get("extra_tag", "")
+            combined = list(current)
+            if extra.strip():
+                combined.append(extra.strip())
+            edit_text = st.text_input(
+                "Edit as comma-separated tags:",
+                value=", ".join(combined) if combined else "",
+                key="correct_edit",
+                placeholder="bird, chicken, human_voice",
+            )
+            col_a, col_b = st.columns([1, 3])
+            with col_a:
+                if st.button("✔️ Apply Edit", type="primary"):
+                    conn = get_db()
+                    conn.execute(
+                        "UPDATE clips SET review_status = 'corrected', human_label = ? WHERE id = ?",
+                        (edit_text.strip(), clip["id"])
+                    )
+                    conn.commit()
+                    st.session_state.show_correct_picker = False
+                    st.session_state.queue.pop(queue_idx)
+                    st.rerun()
+            with col_b:
+                st.caption("Edit the comma-separated list above, then click Apply.")
+
         if action:
             conn = get_db()
             human_label = None
             if action == "confirmed":
-                # Use multiselect tags if any selected
                 selected = st.session_state.get("tag_multiselect", [])
-                custom = st.session_state.get("custom_tag_input", "").strip()
-                
+                extra = st.session_state.get("extra_tag", "").strip()
                 all_tags = list(selected)
-                if custom and custom not in all_tags:
-                    all_tags.append(custom)
-                
+                if extra and extra not in all_tags:
+                    all_tags.append(extra)
                 if all_tags:
                     human_label = ", ".join(all_tags)
                 else:
