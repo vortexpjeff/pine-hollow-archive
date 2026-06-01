@@ -378,7 +378,7 @@ def train_classifier(X, y, track_config):
 
     # Convert to binary indicator matrix
     if is_multilabel:
-        mlb = MultiLabelBinarizer()
+        mlb = MultiLabelBinarizer(classes=classes)
         mlb.fit([classes])  # ensure consistent column order
         y_bin = mlb.transform(y)  # (n_samples, n_classes)
     else:
