@@ -716,11 +716,22 @@ def main():
         
         # Helper: scientific name → readable display
         def tag_display(name):
-            """Show common name if available, e.g. 'Carolina Wren (Thryothorus ludovicianus)'."""
-            common = common_names.get(name)
+            """Show common name if available, e.g. 'Carolina Wren (T. ludovicianus)'.
+            Falls back to cleaned scientific name with genus capitalized."""
+            # Try case-insensitive common name lookup
+            clean = name.replace('_', ' ').strip()
+            common = common_names.get(clean) or common_names.get(name)
+            if not common:
+                # Try case-insensitive
+                cn_lower = {k.lower(): v for k, v in common_names.items()}
+                common = cn_lower.get(clean.lower())
             if common:
-                return f"{common} ({name})"
-            return name
+                return f"{common} ({clean})"
+            # No common name — show cleaned scientific name
+            if ' ' in clean:
+                parts = clean.split(' ', 1)
+                return f"{parts[0].capitalize()} {parts[1]}"
+            return clean.replace('_', ' ').capitalize()
         
         # Species-level options: source_label + Perch top-3, with common names
         species_options = []
