@@ -653,22 +653,16 @@ def main():
             if perch_top:
                 # Load tag lookup for common names
                 species_to_tag, _ = build_tag_lookup()
-                source_label = clip.get("source_label", "")
-                # Show species with confidence bars — common name first
+                # Show Perch's predictions — scientific name + common if known
                 for entry in perch_top[:5]:
                     species = entry.get("species", "?")
                     conf = entry.get("confidence", 0)
                     common = species_to_tag.get(species, "")
-                    # Build display: common name first, scientific in parens
-                    label_parts = []
-                    if source_label and source_label.replace("_", " ") not in species:
-                        label_parts.append(source_label.replace("_", " "))
-                    if common and common != source_label.lower().replace("_", " "):
-                        label_parts.append(common)
-                    label_parts.append(species)
-                    display = " | ".join(label_parts)
+                    display = species[:35]
+                    if common:
+                        display += f"  ({common})"
                     cols = st.columns([3, 1, 2])
-                    cols[0].text(display[:40])
+                    cols[0].text(display)
                     cols[1].text(f"{conf*100:.1f}%")
                     cols[2].progress(conf)
                 if len(perch_top) > 5:
@@ -677,7 +671,7 @@ def main():
                             species = entry.get("species", "?")
                             conf = entry.get("confidence", 0)
                             common = species_to_tag.get(species, "")
-                            display = f"{species[:28]}"
+                            display = species[:35]
                             if common:
                                 display += f"  ({common})"
                             cols = st.columns([3, 1])
