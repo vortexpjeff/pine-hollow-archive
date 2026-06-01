@@ -312,33 +312,59 @@ def load_training_data(track_name):
             y.append(raw)
     
     elif track_name == "insect_species":
-        # Dynamic multi-species: use source_label from insectnet + public clips.
-        # source_label now contains species names (e.g. "Dryophytes_chrysoscelis")
-        # after the June 1 extraction. Falls back to human_label for legacy data.
+        # General species track — all taxa, all sources.
+        # Reads human_tags JSON for binomial species names (Genus_species).
+        # Auto-derived broad tags (frog, cicada, etc.) are filtered out.
+        # Falls back to source_label for legacy clips without human_tags.
         rows = conn.execute("""
-            SELECT perch_embedding, human_label, source_label FROM clips
+            SELECT perch_embedding, human_label, human_tags, source_label
+            FROM clips
             WHERE review_status IN ('confirmed', 'corrected')
-            AND source IN ('insectnet', 'public')
             AND perch_embedding IS NOT NULL
         """).fetchall()
         
+        acoustic_classes = {'background', 'cicada_drone', 'cricket_katydid',
+                           'frog', 'grasshopper', 'bee', 'dog', 'chicken',
+                           'human_voice', 'mechanical', 'wind_rain',
+                           'bird_song', 'not_chicken'}
+        
         X, y = [], []
         for r in rows:
-            # source_label has species name (preferred). human_label has
-            # acoustic class as fallback for legacy clips.
-            species = (r["source_label"] or "").strip()
-            if not species or species in ('background', 'cicada_drone', 'cricket_katydid',
-                                          'frog', 'grasshopper', 'bee'):
-                # Legacy clip: source_label is an acoustic class, not a species
-                species = (r["human_label"] or "").strip()
-            if not species or ' ' not in species.replace('_', ' '):
-                continue  # skip non-binomial labels
+            species_names = set()
+            
+            # Tier 1: human_tags JSON (post-auto-derive, contains species + broad)
+            if r["human_tags"]:
+                try:
+                    tags = json.loads(r["human_tags"])
+                    for t in tags:
+                        t = t.strip()
+                        # Binomial: either "Genus species" or "Genus_species"
+                        if ('_' in t or ' ' in t) and t not in acoustic_classes:
+                            species_names.add(t.replace('_', ' '))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            # Tier 2: human_label comma-split (legacy format)
+            if not species_names and r["human_label"]:
+                for t in r["human_label"].split(","):
+                    t = t.strip()
+                    if ('_' in t or ' ' in t) and t not in acoustic_classes:
+                        species_names.add(t.replace('_', ' '))
+            
+            # Tier 3: source_label (last resort for legacy public clips)
+            if not species_names and r["source_label"]:
+                t = r["source_label"].strip()
+                if ('_' in t or ' ' in t) and t not in acoustic_classes:
+                    species_names.add(t.replace('_', ' '))
+            
+            if not species_names:
+                continue
             
             emb = np.frombuffer(r["perch_embedding"], dtype=np.float32)
             if emb.shape != (1536,):
                 continue
             X.append(emb)
-            y.append(species.replace('_', ' '))
+            y.append(list(species_names))  # multi-label: one clip can have multiple species
     
     else:
         raise ValueError(f"Unknown track: {track_name}")
@@ -843,7 +869,13 @@ def main():
         
         classes = track_config.get("classes")
         if classes is None:
-            classes = sorted(set(y))
+            if isinstance(y[0], list):
+                all_labels = set()
+                for labels in y:
+                    all_labels.update(labels)
+                classes = sorted(all_labels)
+            else:
+                classes = sorted(set(y))
         track_config["classes"] = classes
         
         if args.dry_run:

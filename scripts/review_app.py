@@ -700,36 +700,41 @@ def main():
             else:
                 st.caption("No Perch predictions for this clip.")
 
-        # ── Tag panel — one place to tag ────────────────────────────
+        # ── Tag panel — two-tier: species-level + class-level ──────
         species_to_tag, all_known_tags = build_tag_lookup()
         source_label = clip.get("source_label", "")
         perch_hints = clip.get("perch_top10", [])
         
-        # Build all available tag options from Perch + source + tag map
-        tag_options = []
-        default_selection = []
-        
-        # Source label (BirdNET/InsectNet) — first in list
+        # Species-level options: source_label + Perch top-3 species
+        species_options = []
         if source_label:
-            tag_options.append(source_label)
-            default_selection.append(source_label)
-        
-        # Perch top-3 species
+            species_options.append(source_label)
         if perch_hints:
             for entry in perch_hints[:3]:
-                species = entry.get("species", "")
-                if species and species not in tag_options:
-                    tag_options.append(species)
-            # Also pre-select Perch top-1 if different from source
-            top_species = perch_hints[0].get("species", "")
-            if top_species and top_species not in default_selection:
-                default_selection.append(top_species)
+                sp = entry.get("species", "")
+                if sp and sp not in species_options:
+                    species_options.append(sp)
         
-        # Broad categories from tag map that match Perch or source
-        for species in list(tag_options):
-            broad = species_to_tag.get(species, "")
-            if broad and broad not in tag_options:
-                tag_options.append(broad)
+        # Class-level options: broad tags + acoustic classes (fallback when
+        # species ID is uncertain). User selects these when they can hear
+        # "some kind of frog" but can't identify the species.
+        acoustic_classes = {"cicada_drone", "cricket_katydid", "frog",
+                           "grasshopper", "bee", "dog", "chicken",
+                           "human_voice", "mechanical", "wind_rain",
+                           "background"}
+        class_options = sorted(set(all_known_tags) | acoustic_classes)
+        # Remove class tags that already appear as species options
+        class_options = [t for t in class_options if t not in species_options]
+        
+        # Combined tag list: species first, then class-level
+        tag_options = species_options + class_options
+        
+        # Default: source_label as primary + Perch top-1 as secondary
+        default_selection = [source_label] if source_label else []
+        if perch_hints:
+            top_sp = perch_hints[0].get("species", "")
+            if top_sp and top_sp not in default_selection:
+                default_selection.append(top_sp)
         
         tag_options = [t for t in tag_options if t]
         default_selection = [t for t in default_selection if t]
@@ -811,6 +816,21 @@ def main():
                     all_tags = list(selected)
                     if extra and extra not in all_tags:
                         all_tags.append(extra)
+                    
+                    # Auto-derive broad tags from species-level tags.
+                    # If user tagged "Dryophytes chrysoscelis", the system
+                    # automatically adds "frog" via tag_map.json. This keeps
+                    # the dataset clean — user tags species, system handles
+                    # taxonomy. No redundant manual tagging.
+                    species_to_tag, _ = build_tag_lookup()
+                    derived = set()
+                    for tag in all_tags:
+                        if tag in species_to_tag:
+                            derived.add(species_to_tag[tag])
+                    for d in sorted(derived):
+                        if d not in all_tags:
+                            all_tags.append(d)
+                    
                     if all_tags:
                         human_label = ", ".join(all_tags)
                         human_tags_json = json.dumps(all_tags)
