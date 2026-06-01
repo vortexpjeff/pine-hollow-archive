@@ -438,6 +438,21 @@ def show_sidebar_stats(clip_idx: int, total: int, session_start: float):
         - **3** — Delete
         - **4** — Skip
         """)
+        
+        # Retrain button — always available after 10+ reviews
+        counts = st.session_state.get("session_counts", {})
+        total = sum(counts.values())
+        if total >= 10:
+            st.markdown("---")
+            st.markdown("### 🧠 Retrain")
+            if st.button(f"🔄 Retrain ({total} reviewed)", use_container_width=True):
+                import subprocess
+                with st.spinner("Training insectnet…"):
+                    subprocess.run(
+                        ["python3", "scripts/retrain.py", "--track", "insectnet"],
+                        cwd=str(ARCHIVE_PATH), capture_output=True, text=True, timeout=120
+                    )
+                _toast("Retrained!", icon="✅")
 
 
 def main():
@@ -617,6 +632,14 @@ def main():
     with right_col:
         st.markdown("### 🏷️ Labels & Tags")
 
+        # ── Model prediction ───────────────────────────────────────
+        model_pred = clip.get("model_pred")
+        model_conf = clip.get("model_conf")
+        if model_pred:
+            with _container(border=True):
+                conf_str = f"{model_conf*100:.0f}%" if model_conf else "?"
+                st.markdown(f"**🤖 Factory predicts:** `{model_pred}` ({conf_str})")
+
         # ── Metadata box ──────────────────────────────────────────
         with _container(border=True):
             meta_col1, meta_col2 = st.columns(2)
@@ -685,41 +708,56 @@ def main():
             else:
                 st.caption("No Perch predictions for this clip.")
 
-        # ── Tag panel — two-tier: species-level + class-level ──────
+        # ── Tag panel — two-tier with common names ──────────────────
         species_to_tag, all_known_tags = build_tag_lookup()
+        common_names = load_common_names()
         source_label = clip.get("source_label", "")
         perch_hints = clip.get("perch_top10", [])
         
-        # Species-level options: source_label + Perch top-3 species
+        # Helper: scientific name → readable display
+        def tag_display(name):
+            """Show common name if available, e.g. 'Carolina Wren (Thryothorus ludovicianus)'."""
+            common = common_names.get(name)
+            if common:
+                return f"{common} ({name})"
+            return name
+        
+        # Species-level options: source_label + Perch top-3, with common names
         species_options = []
+        species_labels = {}  # display → raw scientific name for lookup
         if source_label:
-            species_options.append(source_label)
+            display = tag_display(source_label)
+            species_options.append(display)
+            species_labels[display] = source_label
         if perch_hints:
             for entry in perch_hints[:3]:
                 sp = entry.get("species", "")
-                if sp and sp not in species_options:
-                    species_options.append(sp)
+                if not sp: continue
+                display = tag_display(sp)
+                if display not in species_options:
+                    species_options.append(display)
+                    species_labels[display] = sp
         
-        # Class-level options: broad tags + acoustic classes (fallback when
-        # species ID is uncertain). User selects these when they can hear
-        # "some kind of frog" but can't identify the species.
+        # Class-level options: broad tags + acoustic classes
         acoustic_classes = {"cicada_drone", "cricket_katydid", "frog",
                            "grasshopper", "bee", "dog", "chicken",
                            "human_voice", "mechanical", "wind_rain",
                            "background"}
         class_options = sorted(set(all_known_tags) | acoustic_classes)
-        # Remove class tags that already appear as species options
-        class_options = [t for t in class_options if t not in species_options]
+        class_options = [t for t in class_options if t not in species_options
+                        and t not in species_labels]
         
-        # Combined tag list: species first, then class-level
+        # Combined tag list
         tag_options = species_options + class_options
         
-        # Default: source_label as primary + Perch top-1 as secondary
-        default_selection = [source_label] if source_label else []
+        # Default: source_label display + Perch top-1
+        default_selection = []
+        if source_label:
+            default_selection.append(tag_display(source_label))
         if perch_hints:
-            top_sp = perch_hints[0].get("species", "")
-            if top_sp and top_sp not in default_selection:
-                default_selection.append(top_sp)
+            top_display = tag_display(perch_hints[0].get("species", ""))
+            if top_display and top_display not in default_selection:
+                default_selection.append(top_display)
         
         tag_options = [t for t in tag_options if t]
         default_selection = [t for t in default_selection if t]
@@ -778,6 +816,49 @@ def main():
                 use_container_width=True,
                 help="Skip for now, revisit later"
             )
+        with btn_col4:
+            undo_btn = False
+            if st.session_state.get("undo_clip_id"):
+                undo_btn = st.button(
+                    "↩️ Undo", key="undo_btn",
+                    use_container_width=True,
+                    help=f"Undo last {st.session_state.get('undo_action', 'action')}"
+                )
+
+        # ── Undo handler (before regular actions) ─────────────────
+        if undo_btn:
+            undo_id = st.session_state.get("undo_clip_id")
+            if undo_id:
+                conn = get_db()
+                conn.execute(
+                    "UPDATE clips SET review_status='unreviewed', human_label=NULL, "
+                    "human_tags=NULL, reviewed_at=NULL WHERE id=?",
+                    (undo_id,)
+                )
+                conn.commit()
+                # Restore clip to front of queue
+                restored = [c for c in st.session_state.queue if c["id"] == undo_id]
+                if not restored:
+                    # Reload it from DB
+                    row = conn.execute(
+                        "SELECT id, file_path, source, source_label, source_conf, "
+                        "perch_top10, perch_top50, perch_embedding, "
+                        "duration_s, recorded_at, pulled_at "
+                        "FROM clips WHERE id=?", (undo_id,)
+                    ).fetchone()
+                    if row:
+                        restored = [dict(row)]
+                if restored:
+                    st.session_state.queue.insert(0, restored[0])
+                st.session_state.queue_idx = 0
+                st.session_state.undo_clip_id = None
+                st.session_state.undo_action = None
+                # Decrement session count
+                counts = st.session_state.session_counts
+                undo_action = st.session_state.get("undo_action", "confirmed")
+                if counts.get(undo_action, 0) > 0:
+                    counts[undo_action] -= 1
+                st.rerun()
 
         # ── Handle button actions ─────────────────────────────────
         action = None
@@ -808,7 +889,14 @@ def main():
                 if action == "confirmed":
                     selected = st.session_state.get("tag_multiselect", [])
                     extra = st.session_state.get("extra_tag", "").strip()
-                    all_tags = list(selected)
+                    # Translate common-name displays back to raw names.
+                    # "Carolina Wren (Thryothorus ludovicianus)" → "Thryothorus ludovicianus"
+                    all_tags = []
+                    for tag in selected:
+                        if " (" in tag and tag.endswith(")"):
+                            all_tags.append(tag.split(" (")[-1][:-1])
+                        else:
+                            all_tags.append(tag)
                     if extra and extra not in all_tags:
                         all_tags.append(extra)
                     
@@ -840,9 +928,13 @@ def main():
                 )
                 conn.commit()
 
+            # Store undo info before moving to next clip
+            if action in ("confirmed", "deleted"):
+                st.session_state.undo_clip_id = clip["id"]
+                st.session_state.undo_action = action
+            
             # Move to next clip
             if action == "skipped":
-                # Put skipped clip at end of queue (in-memory only)
                 st.session_state.queue.append(st.session_state.queue.pop(queue_idx))
             else:
                 st.session_state.queue.pop(queue_idx)
