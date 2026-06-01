@@ -692,19 +692,45 @@ def main():
         # ── Normalised tag suggestions ────────────────────────────
         species_to_tag, all_known_tags = build_tag_lookup()
         source_label = clip.get("source_label", "")
-        suggestions = autosuggest_tags(source_label, species_to_tag)
+        perch_hints = clip.get("perch_top10", [])
+        
+        # Build suggestions: Perch top-1 first, then source label, then broad tags
+        suggestions = []
+        if perch_hints and len(perch_hints) > 0:
+            perch_top_species = perch_hints[0].get("species", "")
+            if perch_top_species:
+                suggestions.append(perch_top_species)
+        if source_label and source_label not in suggestions:
+            suggestions.append(source_label)
+        # Add broad tag map suggestions
+        broad_tags = autosuggest_tags(source_label, species_to_tag)
+        for tag in broad_tags:
+            if tag not in suggestions:
+                suggestions.append(tag)
+        # Also add perch species as broad tag via tag map
+        if perch_hints:
+            for entry in perch_hints[:3]:
+                s = entry.get("species", "")
+                if s in species_to_tag:
+                    tag = species_to_tag[s]
+                    if tag not in suggestions:
+                        suggestions.append(tag)
+        
+        # Default value: prefer specific species name over broad category
+        default_tag = suggestions[0] if suggestions else ""
 
         with st.container(border=True):
             st.markdown("**✏️ Tag**")
             tag_text = st.text_input(
-                "Normalised/common name tag",
-                value=suggestions[0] if suggestions else "",
+                "Species or class label",
+                value=default_tag,
                 key="tag_input",
-                placeholder="e.g. chicken, robin, bullfrog…",
+                placeholder="e.g. Carolina_Wren, chicken, frog…",
                 label_visibility="collapsed",
             )
             if suggestions:
-                st.caption(f"Suggestions: {', '.join(suggestions)}")
+                st.caption(f"Suggestions: {', '.join(suggestions[:5])}")
+            st.caption("Confirm saves the source label. Type a custom label to override.")
 
         # ── Action buttons ────────────────────────────────────────
         st.markdown("### ⚡ Actions")
