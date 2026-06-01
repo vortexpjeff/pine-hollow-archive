@@ -664,6 +664,7 @@ def main():
                 common_names = load_common_names()
                 species_to_tag, _ = build_tag_lookup()
                 # Show Perch's predictions — common name if known, else scientific
+                st.caption(f"📖 {len(common_names)} common names loaded")  # debug indicator
                 for entry in perch_top[:5]:
                     species = entry.get("species", "?")
                     conf = entry.get("confidence", 0)
