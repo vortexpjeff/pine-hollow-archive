@@ -693,43 +693,59 @@ def main():
         source_label = clip.get("source_label", "")
         perch_hints = clip.get("perch_top10", [])
         
-        # Build suggestions: Perch top-1 first, then source label, then broad tags
-        suggestions = []
-        if perch_hints and len(perch_hints) > 0:
-            perch_top_species = perch_hints[0].get("species", "")
-            if perch_top_species:
-                suggestions.append(perch_top_species)
-        if source_label and source_label not in suggestions:
-            suggestions.append(source_label)
-        # Add broad tag map suggestions
-        broad_tags = autosuggest_tags(source_label, species_to_tag)
-        for tag in broad_tags:
-            if tag not in suggestions:
-                suggestions.append(tag)
-        # Also add perch species as broad tag via tag map
+        # Build all available tag options from Perch + source + tag map
+        tag_options = []
+        default_selection = []
+        
+        # Perch top-3 species
         if perch_hints:
             for entry in perch_hints[:3]:
-                s = entry.get("species", "")
-                if s in species_to_tag:
-                    tag = species_to_tag[s]
-                    if tag not in suggestions:
-                        suggestions.append(tag)
+                species = entry.get("species", "")
+                if species and species not in tag_options:
+                    tag_options.append(species)
+            # Default: pre-select Perch top-1
+            if perch_hints:
+                default_selection.append(perch_hints[0].get("species", ""))
         
-        # Default value: prefer specific species name over broad category
-        default_tag = suggestions[0] if suggestions else ""
+        # Source label (BirdNET/InsectNet)
+        if source_label and source_label not in tag_options:
+            tag_options.append(source_label)
+            default_selection.append(source_label)
+        
+        # Broad categories from tag map that match Perch or source
+        for species in list(tag_options):
+            broad = species_to_tag.get(species, "")
+            if broad and broad not in tag_options:
+                tag_options.append(broad)
+        
+        # Remove empty strings
+        tag_options = [t for t in tag_options if t]
+        default_selection = [t for t in default_selection if t]
 
         with st.container(border=True):
-            st.markdown("**✏️ Tag**")
-            tag_text = st.text_input(
-                "Species or class label",
-                value=default_tag,
-                key="tag_input",
-                placeholder="e.g. Carolina_Wren, chicken, frog…",
+            st.markdown("**✏️ Tags — click to select what's in this clip**")
+            selected_tags = st.multiselect(
+                "Select labels that apply",
+                options=tag_options,
+                default=default_selection,
+                key="tag_multiselect",
                 label_visibility="collapsed",
             )
-            if suggestions:
-                st.caption(f"Suggestions: {', '.join(suggestions[:5])}")
-            st.caption("Confirm saves the source label. Type a custom label to override.")
+            # Show selected as clean comma text
+            if selected_tags:
+                st.caption(f"Selected: {', '.join(selected_tags)}")
+            
+            # Custom tag input for anything not in the list
+            custom_tag = st.text_input(
+                "➕ Add custom tag",
+                key="custom_tag_input",
+                placeholder="e.g. turkey, goat, owl…",
+                label_visibility="collapsed",
+            )
+            if custom_tag.strip():
+                st.caption(f"Custom: {custom_tag.strip()}")
+            
+            st.caption("Confirm saves selected tags. Click Correct to override.")
 
         # ── Action buttons ────────────────────────────────────────
         st.markdown("### ⚡ Actions")
@@ -763,12 +779,14 @@ def main():
         # ── Correct picker (shown after clicking Correct) ─────────
         if st.session_state.show_correct_picker:
             with st.container(border=True):
-                st.markdown("**Type the correct label:**")
+                st.markdown("**Correct the labels for this clip:**")
+                # Show current multiselect as starting point
+                current_selection = st.session_state.get("tag_multiselect", [])
                 correct_text = st.text_input(
-                    "Enter species or class name",
-                    value=st.session_state.get("tag_input", ""),
+                    "Edit labels (comma-separated)",
+                    value=", ".join(current_selection) if current_selection else "",
                     key="correct_tag_input",
-                    placeholder="e.g. Carolina_Wren, chicken, frog…",
+                    placeholder="e.g. bird, chicken, human_voice",
                     label_visibility="collapsed",
                 )
                 col1, col2 = st.columns([3, 1])
@@ -804,12 +822,18 @@ def main():
             conn = get_db()
             human_label = None
             if action == "confirmed":
-                human_label = clip.get("source_label")
-
-            # Use free-text tag input if provided
-            tag_from_input = st.session_state.get("tag_input", "")
-            if action == "confirmed" and tag_from_input.strip():
-                human_label = tag_from_input.strip()
+                # Use multiselect tags if any selected
+                selected = st.session_state.get("tag_multiselect", [])
+                custom = st.session_state.get("custom_tag_input", "").strip()
+                
+                all_tags = list(selected)
+                if custom and custom not in all_tags:
+                    all_tags.append(custom)
+                
+                if all_tags:
+                    human_label = ", ".join(all_tags)
+                else:
+                    human_label = clip.get("source_label")
 
             conn.execute(
                 "UPDATE clips SET review_status = ?, human_label = ? "
