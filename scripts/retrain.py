@@ -83,7 +83,13 @@ TRACKS = {
     "bird46": {
         "classes": None,  # dynamic: all species labels in confirmed clips
         "min_samples": 3,
-        "description": "Multi-species bird classifier",
+        "description": "Multi-species bird classifier (source='birdnet')",
+        "comparison_model": None,
+    },
+    "insect_species": {
+        "classes": None,  # dynamic: all species labels in confirmed clips
+        "min_samples": 3,
+        "description": "Multi-species insect/frog classifier (source='insectnet'/'public')",
         "comparison_model": None,
     },
 }
@@ -304,6 +310,35 @@ def load_training_data(track_name):
                 continue
             X.append(emb)
             y.append(raw)
+    
+    elif track_name == "insect_species":
+        # Dynamic multi-species: use source_label from insectnet + public clips.
+        # source_label now contains species names (e.g. "Dryophytes_chrysoscelis")
+        # after the June 1 extraction. Falls back to human_label for legacy data.
+        rows = conn.execute("""
+            SELECT perch_embedding, human_label, source_label FROM clips
+            WHERE review_status IN ('confirmed', 'corrected')
+            AND source IN ('insectnet', 'public')
+            AND perch_embedding IS NOT NULL
+        """).fetchall()
+        
+        X, y = [], []
+        for r in rows:
+            # source_label has species name (preferred). human_label has
+            # acoustic class as fallback for legacy clips.
+            species = (r["source_label"] or "").strip()
+            if not species or species in ('background', 'cicada_drone', 'cricket_katydid',
+                                          'frog', 'grasshopper', 'bee'):
+                # Legacy clip: source_label is an acoustic class, not a species
+                species = (r["human_label"] or "").strip()
+            if not species or ' ' not in species.replace('_', ' '):
+                continue  # skip non-binomial labels
+            
+            emb = np.frombuffer(r["perch_embedding"], dtype=np.float32)
+            if emb.shape != (1536,):
+                continue
+            X.append(emb)
+            y.append(species.replace('_', ' '))
     
     else:
         raise ValueError(f"Unknown track: {track_name}")
@@ -556,9 +591,11 @@ def score_all_clips(model_package, track_name):
     version = model_package["version"]
     
     if track_name == "insectnet":
-        where_clause = "WHERE perch_embedding IS NOT NULL AND source = 'insectnet'"
+        where_clause = "WHERE perch_embedding IS NOT NULL AND source IN ('insectnet', 'public')"
     elif track_name == "bird46":
         where_clause = "WHERE perch_embedding IS NOT NULL AND source = 'birdnet'"
+    elif track_name == "insect_species":
+        where_clause = "WHERE perch_embedding IS NOT NULL AND source IN ('insectnet', 'public')"
     else:
         # chicken, soundscape — applies to all clips
         where_clause = "WHERE perch_embedding IS NOT NULL"
