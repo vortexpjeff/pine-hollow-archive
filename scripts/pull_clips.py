@@ -495,20 +495,28 @@ def main():
         total_to_process += len(birdnet_files)
         print(f"\n  Found {len(birdnet_files)} new BirdNET clips")
         
-        # rsync them with correct include patterns
+        # rsync only the files we'll process
         if not args.dry_run:
-            print("  Pulling BirdNET clips from Pi...")
+            limit = args.limit if args.limit > 0 else len(birdnet_files)
+            files_to_pull = birdnet_files[:limit]
+            print(f"  Pulling {len(files_to_pull)} BirdNET clips from Pi...")
             env = os.environ.copy()
             env["DISPLAY"] = ":0"
             env["SSH_ASKPASS"] = str(ASKPASS_PATH)
             env["SSH_ASKPASS_REQUIRE"] = "force"
-            subprocess.run([
-                "rsync", "-avzm",
-                "--include=*/", "--include=*.mp3", "--exclude=*",
-                "--no-motd",
-                f"{PI_USER}@{PI_HOST}:{PI_BIRDNET_PATH}",
-                str(BIRDNET_DIR) + "/"
-            ], env=env, timeout=300)
+            # Build per-directory batches for efficiency
+            dirs_to_pull = set()
+            for fp in files_to_pull:
+                dirname = str(Path(fp).parent)
+                dirs_to_pull.add(dirname)
+            for dirname in sorted(dirs_to_pull):
+                subprocess.run([
+                    "rsync", "-azm",
+                    "--include=*/", "--include=*.mp3", "--exclude=*",
+                    "--no-motd",
+                    f"{PI_USER}@{PI_HOST}:{PI_BIRDNET_PATH}{dirname}/",
+                    str(BIRDNET_DIR / dirname) + "/"
+                ], env=env, timeout=60)
         
         # Process each clip
         limit = args.limit if args.limit > 0 else len(birdnet_files)
@@ -552,18 +560,26 @@ def main():
         print(f"\n  Found {len(insectnet_files)} new InsectNet clips")
         
         if not args.dry_run:
-            print("  Pulling InsectNet clips from Pi...")
+            limit = args.limit if args.limit > 0 else len(insectnet_files)
+            files_to_pull = insectnet_files[:limit]
+            print(f"  Pulling {len(files_to_pull)} InsectNet clips from Pi...")
             env = os.environ.copy()
             env["DISPLAY"] = ":0"
             env["SSH_ASKPASS"] = str(ASKPASS_PATH)
             env["SSH_ASKPASS_REQUIRE"] = "force"
-            subprocess.run([
-                "rsync", "-avzm",
-                "--include=*/", "--include=*.wav", "--exclude=*",
-                "--no-motd",
-                f"{PI_USER}@{PI_HOST}:{PI_INSECTNET_PATH}",
-                str(INSECTNET_DIR) + "/"
-            ], env=env, timeout=120)
+            # Build per-directory batches
+            dirs_to_pull = set()
+            for fp in files_to_pull:
+                dirname = str(Path(fp).parent)
+                dirs_to_pull.add(dirname)
+            for dirname in sorted(dirs_to_pull):
+                subprocess.run([
+                    "rsync", "-azm",
+                    "--include=*/", "--include=*.wav", "--exclude=*",
+                    "--no-motd",
+                    f"{PI_USER}@{PI_HOST}:{PI_INSECTNET_PATH}{dirname}/",
+                    str(INSECTNET_DIR / dirname) + "/"
+                ], env=env, timeout=60)
         
         limit = args.limit if args.limit > 0 else len(insectnet_files)
         for i, filepath in enumerate(insectnet_files):
