@@ -300,27 +300,22 @@ def generate_spectrogram(file_path: Path, nfft=2048, hop_length=512) -> Optional
                 data = data.mean(axis=1)  # mono mix
             data = data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
         else:
-            # For .mp3 use librosa (if available) or ffmpeg subprocess
+            # For .mp3 use ffmpeg subprocess (librosa is broken in this env)
+            import subprocess
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = tmp.name
             try:
-                import librosa
-                data, rate = librosa.load(fp, sr=None, mono=True)
-            except ImportError:
-                # Fallback: use ffmpeg via subprocess to decode to raw WAV
-                import subprocess
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                    tmp_path = tmp.name
-                try:
-                    subprocess.run(
-                        ["ffmpeg", "-i", fp, "-ac", "1", "-f", "wav", "-y", tmp_path],
-                        capture_output=True, timeout=30, check=True
-                    )
-                    from scipy.io import wavfile
-                    rate, data = wavfile.read(tmp_path)
-                    data = data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
+                subprocess.run(
+                    ["ffmpeg", "-i", fp, "-ac", "1", "-f", "wav", "-y", tmp_path],
+                    capture_output=True, timeout=30, check=True
+                )
+                from scipy.io import wavfile
+                rate, data = wavfile.read(tmp_path)
+                data = data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
         # Compute spectrogram
         f, t, Sxx = scipy_signal.spectrogram(
@@ -598,7 +593,7 @@ def main():
         if clip_path.exists():
             audio_bytes = clip_path.read_bytes()
             # Infer format from file extension
-            clip_fmt = "mp3" if str(clip_path).lower().endswith(".mp3") else "wav"
+            clip_fmt = "mpeg" if str(clip_path).lower().endswith(".mp3") else "wav"
             st.audio(audio_bytes, format="audio/" + clip_fmt)
         else:
             st.warning(f"Audio file not found: {clip_path}")
