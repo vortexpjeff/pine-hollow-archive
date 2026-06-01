@@ -359,24 +359,6 @@ def generate_spectrogram(file_path: Path, nfft=2048, hop_length=512) -> Optional
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Tag map helpers
-# ──────────────────────────────────────────────────────────────────────
-
-
-def autosuggest_tags(source_label: str, species_to_tag: dict) -> list[str]:
-    """Return list of suggested common names for a scientific label."""
-    suggestions = []
-    if source_label in species_to_tag:
-        suggestions.append(species_to_tag[source_label])
-    # Also match by partial name
-    for sci, common in species_to_tag.items():
-        if source_label and (sci.lower().startswith(source_label.lower()[:6])):
-            if common not in suggestions:
-                suggestions.append(common)
-    return suggestions
-
-
-# ──────────────────────────────────────────────────────────────────────
 # UI helpers
 # ──────────────────────────────────────────────────────────────────────
 
@@ -409,10 +391,6 @@ def inject_keyboard_shortcuts():
             case 'Digit1':
                 const c = btn('confirm');
                 if (c) c.click();
-                break;
-            case 'Digit2':
-                const corr = btn('correct');
-                if (corr) corr.click();
                 break;
             case 'Digit3':
                 const del = btn('delete');
@@ -449,9 +427,8 @@ def show_sidebar_stats(clip_idx: int, total: int, session_start: float):
         counts = st.session_state.get("session_counts", {})
         col1, col2 = st.columns(2)
         col1.metric("✅ Confirm", counts.get("confirmed", 0))
-        col2.metric("✏️ Corrected", counts.get("corrected", 0))
-        col1.metric("🗑️ Deleted", counts.get("deleted", 0))
-        col2.metric("⏭️ Skipped", counts.get("skipped", 0))
+        col2.metric("🗑️ Deleted", counts.get("deleted", 0))
+        col1.metric("⏭️ Skipped", counts.get("skipped", 0))
 
         st.markdown("---")
         st.markdown("### ⌨️ Shortcuts")
@@ -569,15 +546,23 @@ def main():
                     max((d.get("confidence", 0) for d in clip.get("perch_top10", [])), default=0)
                 )
                 if max_conf >= st.session_state.batch_threshold:
-                    # Auto-confirm
+                    # Auto-confirm with auto-derive (same logic as manual confirm)
                     conn = get_db()
                     source_label = clip.get("source_label") or ""
+                    # Auto-derive broad tags from source_label via tag_map
+                    species_to_tag, _ = build_tag_lookup()
+                    all_tags = [source_label]
+                    if source_label in species_to_tag:
+                        derived = species_to_tag[source_label]
+                        if derived not in all_tags:
+                            all_tags.append(derived)
+                    human_label = ", ".join(all_tags)
                     conn.execute(
                         "UPDATE clips SET review_status = 'confirmed', "
-                        "human_label = source_label, "
-                        "human_tags = json_array(source_label), "
+                        "human_label = ?, "
+                        "human_tags = json(?), "
                         "reviewed_at = datetime('now', 'localtime') "
-                        "WHERE id = ?", (clip["id"],)
+                        "WHERE id = ?", (human_label, json.dumps(all_tags), clip["id"])
                     )
                     conn.commit()
                     batch_accepted += 1
@@ -759,7 +744,17 @@ def main():
                 display = list(selected_tags)
                 if extra.strip():
                     display.append(extra.strip())
-                st.caption(f"Will save: {', '.join(display)}")
+                # Show auto-derived tags that will be added on save
+                species_to_tag, _ = build_tag_lookup()
+                derived = set()
+                for tag in display:
+                    if tag in species_to_tag:
+                        derived.add(species_to_tag[tag])
+                derived_display = [d for d in sorted(derived) if d not in display]
+                if derived_display:
+                    st.caption(f"Will save: {', '.join(display)}  [+ {', '.join(derived_display)} auto]")
+                else:
+                    st.caption(f"Will save: {', '.join(display)}")
 
         # ── Action buttons ────────────────────────────────────────
         st.markdown("### ⚡ Actions")
