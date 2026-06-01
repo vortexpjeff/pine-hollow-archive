@@ -764,30 +764,28 @@ def main():
         # ── Correct picker (shown after clicking Correct) ─────────
         if st.session_state.show_correct_picker:
             with st.container(border=True):
-                st.markdown("**Select correct tag:**")
-                # Get all known tags from the tag map
-                _, all_tags = build_tag_lookup()
+                st.markdown("**Type the correct label:**")
+                correct_text = st.text_input(
+                    "Enter species or class name",
+                    value=st.session_state.get("tag_input", ""),
+                    key="correct_tag_input",
+                    placeholder="e.g. Carolina_Wren, chicken, frog…",
+                    label_visibility="collapsed",
+                )
                 col1, col2 = st.columns([3, 1])
-                with col1:
-                    selected_tag = st.selectbox(
-                        "Choose a normalised tag",
-                        [""] + all_tags,
-                        key="correct_tag_select",
-                        label_visibility="collapsed",
-                    )
                 with col2:
-                    confirm_correct = st.button("✔️ Apply", key="apply_correct",
-                                                type="primary", use_container_width=True)
-                if confirm_correct and selected_tag:
-                    # Directly apply the correction
+                    apply_correct = st.button("✔️ Apply", key="apply_correct",
+                                              type="primary", use_container_width=True)
+                with col1:
+                    st.caption("Type a species name, broad class, or anything in between.")
+                if apply_correct and correct_text.strip():
                     conn = get_db()
                     conn.execute(
                         "UPDATE clips SET review_status = 'corrected', human_label = ? "
-                        "WHERE id = ?", (selected_tag, clip["id"])
+                        "WHERE id = ?", (correct_text.strip(), clip["id"])
                     )
                     conn.commit()
                     st.session_state.show_correct_picker = False
-                    # Remove current clip from queue
                     st.session_state.queue.pop(queue_idx)
                     st.rerun()
 
