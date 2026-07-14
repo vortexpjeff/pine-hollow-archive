@@ -1,0 +1,15 @@
+[Unit]
+Description=Pine Hollow Commons Lab fixed-camera capture
+Documentation=file:///mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive/docs/commons_lab_automation_v0.2.md
+ConditionPathExists=/mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive/archive.db
+
+[Service]
+Type=oneshot
+WorkingDirectory=/mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive
+ExecStart=/usr/bin/python3 /mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive/scripts/run_commons_lab_capture.py --trigger systemd_timer
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=90
+UMask=0077
+StandardOutput=journal
+StandardError=journal

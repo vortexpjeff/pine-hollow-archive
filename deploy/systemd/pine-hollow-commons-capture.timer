@@ -1,0 +1,11 @@
+[Unit]
+Description=Capture Pine Hollow Commons Lab frame every 30 minutes during daylight operating hours
+
+[Timer]
+OnCalendar=*-*-* 06..21:00,30:00
+AccuracySec=30s
+Persistent=false
+Unit=pine-hollow-commons-capture.service
+
+[Install]
+WantedBy=timers.target
