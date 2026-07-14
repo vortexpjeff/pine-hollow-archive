@@ -275,6 +275,8 @@ Installed user units:
 
 Add future expansions to this table when they become operational. Do not mark planned hardware as installed.
 
+Final blocker/high re-review result: **APPROVE**. The reviewer confirmed that finalized evidence cannot be overwritten and that the shared lock covers manual and scheduled capture entry points. No blocker or high-severity issues remain; the reviewer modified no files.
+
 ## Clean expansion sequence
 
 ### v0.3 — View-specific visual baseline
