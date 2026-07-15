@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-14T19:43:30-04:00",
+  "reconciled_at": "2026-07-14T21:16:38-04:00",
+  "scope": "Initial read-only reconciliation plus final user-approved public sanitization; BirdNET-Pi remained read-only",
+  "privacy": {
+    "classification": "private_project_record",
+    "public_projection_required": true,
+    "excluded_from_registry": [
+      "exact coordinates",
+      "street address",
+      "passwords or tokens",
+      "private source-media paths",
+      "raw audio"
+    ]
+  },
+  "surfaces": {
+    "github": {
+      "repository": "vortexpjeff/insectnet",
+      "default_branch": "main",
+      "head": "11b56fff9276fae9f9889cf561df247c5cd008d6",
+      "tag": "v0.1.0",
+      "github_releases": 1,
+      "repository_recreated_for_history_removal": true,
+      "last_push": "2026-07-15T01:05:18Z"
+    },
+    "hugging_face": {
+      "repository": "TheVortexProject/insectnet",
+      "branch": "main",
+      "head": "96081fee19b1bfe9e480177d9be9751ec2818e4c",
+      "tags": ["v0.1.0"],
+      "repository_recreated_for_history_removal": true,
+      "last_modified": "2026-07-15T01:14:47.000Z"
+    },
+    "archive_workspace": {
+      "repository": "pine-hollow-archive",
+      "branch": "master",
+      "configured_remote": "vortexpjeff/pine-hollow-archive",
+      "remote_status": "unavailable_repository_not_found",
+      "insectnet_state": "final audit, artifact registry, and cleanup ledger retained; non-v0.1 workstation artifacts removed"
+    },
+    "birdnet_pi": {
+      "hostname": "BirdNetPi",
+      "audit_mode": "read_only",
+      "audited_at": "2026-07-14T19:39:16-04:00",
+      "birdnet_services": {
+        "birdnet_recording": "active",
+        "birdnet_analysis": "active",
+        "birdnet_log": "active",
+        "birdnet_stats": "active"
+      },
+      "insectnet_sidecar": "inactive",
+      "insectnet_service_unit": "absent",
+      "insectnet_crontab": "absent",
+      "last_sidecar_ledger_record": "2026-06-17T18:05:26-04:00",
+      "ledger_lines": 17129,
+      "last_session": {
+        "wavs_processed": 56474,
+        "detections_kept": 17130,
+        "discarded": 39344,
+        "errors": 0,
+        "shutdown": "clean"
+      },
+      "retained_audio": {
+        "count": 8,
+        "format": "mp3",
+        "review_bucket": "uncertain"
+      },
+      "free_storage_gib": 8.8,
+      "birdnet_detection_ledger": {
+        "path_role": "authoritative BirdNET detection ledger",
+        "bytes": 3133453,
+        "last_modified": "2026-07-14T17:54:19-04:00"
+      }
+    }
+  },
+  "runtime_contract": {
+    "birdnet_backbone": {
+      "name": "BirdNET_GLOBAL_6K_V2.4_Model_FP16.tflite",
+      "sha256": "5c64ba3ffab264ccbfafe784896392051a86be63b0cc507e7683db7df114546b"
+    },
+    "feature_space": "birdnet_logits_6522",
+    "window_seconds": 3.0,
+    "sample_rate_hz": 48000,
+    "deployment_target": "BirdNET-Pi sidecar",
+    "truth_policy": "detections are review candidates, not confirmed observations"
+  },
+  "artifacts": [
+    {
+      "artifact_id": "insectnetpi-v0.1.0",
+      "sha256": "5e6ecfc68d78a2cf2e9e9e47da5cb58d696e8de354fd620cfcccc5db9da48702",
+      "bytes": 474892,
+      "classes": ["background", "bee", "cicada_drone", "cricket_katydid", "frog", "grasshopper"],
+      "embedded_metadata": ["classes", "classifier", "scaler"],
+      "status": "reference_release_and_current_pi_file_sidecar_inactive",
+      "surfaces": [
+        "GitHub tag v0.1.0",
+        "GitHub main src/insectnet/data/classifier.joblib",
+        "Hugging Face main classifier.joblib",
+        "archive workspace models/insectnetpi_sidecar_v0.1.0_may29.joblib",
+        "BirdNET-Pi active classifier path"
+      ],
+      "limitations": [
+        "no embedded version",
+        "no embedded thresholds",
+        "no embedded training manifest",
+        "high bird false-positive behavior in later audits",
+        "sidecar runtime currently stopped"
+      ]
+    },
+    {
+      "artifact_id": "insectnetpi-v0.2-curated-local-anchor",
+      "sha256": "6627cb41861285ca8c8111941b1de029671415398c7e1d0fc0adab0ec639c0dc",
+      "bytes": 421724,
+      "classes": ["background", "cicada_drone", "cricket_katydid", "frog", "grasshopper"],
+      "thresholds": {
+        "background": 0.65,
+        "cicada_drone": 0.9,
+        "cricket_katydid": 0.85,
+        "frog": 0.9,
+        "grasshopper": 0.9
+      },
+      "variant": "insectnet_0.2_final_curated_local_anchor",
+      "embedded_release_status": "final_not_deployed",
+      "status": "best_documented_v0.2_artifact_preserved_on_pi_not_deployed",
+      "surfaces": ["BirdNET-Pi classifier_0.2.bak"],
+      "limitations": [
+        "original archive release package is absent",
+        "embedded provenance paths point to missing workstation files",
+        "not field-cleared as an active unattended deployment"
+      ]
+    },
+    {
+      "artifact_id": "insectnetpi-v0.2-bird-negative-candidate",
+      "sha256": "175b01b0bc81534f8c82e297d499ab33e8a115b6ec52ad50cb3e2a63bd0049e8",
+      "bytes": 474958,
+      "classes": ["background", "bee", "cicada_drone", "cricket_katydid", "frog", "grasshopper"],
+      "thresholds": {
+        "background": 0.7,
+        "bee": 0.9,
+        "cicada_drone": 0.95,
+        "cricket_katydid": 0.9,
+        "frog": 0.95,
+        "grasshopper": 0.95
+      },
+      "training_policy": "v01_restored_bg_plus_25_birdneg",
+      "embedded_release_status": "candidate_only_not_deployed",
+      "status": "candidate_preserved_on_pi_not_deployed",
+      "surfaces": [
+        "BirdNET-Pi classifier.joblib.candidate",
+        "BirdNET-Pi classifier.joblib.current_candidate"
+      ],
+      "limitations": [
+        "original workstation report and training manifest are absent",
+        "continuous field false-positive load is unmeasured"
+      ]
+    },
+    {
+      "artifact_id": "insectnetpi-v0.2-pre-rollback-final5-grass",
+      "sha256": "5beb3178aef6b48d4b922a698faf76a370e06c5d1defb43df29b58eda420e58e",
+      "bytes": 421447,
+      "classes": ["background", "cicada_drone", "cricket_katydid", "frog", "grasshopper"],
+      "variant": "final5_grass",
+      "status": "historical_pre_rollback_do_not_promote_without_review",
+      "surfaces": ["BirdNET-Pi classifier.joblib.pre_rollback_20260604_163059"]
+    },
+    {
+      "artifact_id": "insectnetpi-v0.2-desktop-experiment",
+      "sha256": "42236d3766b73e44bbc0204b6283b2fb36368804a2963b1e27a09c71b97ed970",
+      "bytes": 473389,
+      "classes": ["background", "bee", "cicada_drone", "cricket_katydid", "frog", "grasshopper"],
+      "thresholds": {
+        "background": 0.7,
+        "bee": 0.85,
+        "cicada_drone": 0.15,
+        "cricket_katydid": 0.45,
+        "frog": 0.7,
+        "grasshopper": 0.6
+      },
+      "report": {
+        "sha256": "33b1fdd13cb9bd2bcf4515e662bd03758cde786e75f59cc96ce3918c3b6a25b8",
+        "macro_f1": 0.5591286205845284,
+        "weighted_f1": 0.6468034742124171,
+        "birdneg_count": 0,
+        "frog_add": 10
+      },
+      "status": "experimental_removed_after_checksummed_quarantine",
+      "surfaces": [],
+      "limitations": [
+        "report conflicts with companion narrative about bird-negative training",
+        "low cicada threshold",
+        "weak class-level precision",
+        "no durable training manifest found"
+      ]
+    }
+  ],
+  "source_lineage": {
+    "github_v0.1_capture": {
+      "sha256": "f3d1896a4a3700d354c00f69abe4304d80d5c88ced75539ad66caee1911f1355",
+      "bytes": 18435,
+      "status": "public_source_older_than_pi"
+    },
+    "birdnet_pi_capture": {
+      "sha256": "182833a028a592e5d817c761ac84088fc25f1ea3f45b8caa296925505d8db6e5",
+      "bytes": 23476,
+      "status": "newer_runtime_source_preserved_only_on_pi"
+    },
+    "github_v0.1_birdnet_wrapper": {
+      "sha256": "501ddeb93ee44d77e689d683c4d733709828eb73451f567ef4d3154eeef2f39d"
+    },
+    "github_v0.1_training": {
+      "sha256": "63fd3209c1c7f02fd9f583709a44bd1082a7f8b78f942eb0d0d9d4964b135798"
+    },
+    "github_v0.1_deploy": {
+      "sha256": "d7484379fc980a0e5b26e27b8507668ba71ae8ffc1315e80824be85c7645d3b0"
+    }
+  },
+  "management_state": {
+    "source_of_truth": "vortexpjeff/insectnet at clean root 11b56fff9276fae9f9889cf561df247c5cd008d6",
+    "release_mirror": "TheVortexProject/insectnet at clean root 96081fee19b1bfe9e480177d9be9751ec2818e4c",
+    "production_boundary": "BirdNET-Pi remains unchanged until separately approved",
+    "publication_state": "sanitized v0.1.0 published and publicly verified; former revisions unresolvable",
+    "cleanup_ledger": "docs/audit/insectnet_cleanup_ledger_2026-07-14.json"
+  }
+}

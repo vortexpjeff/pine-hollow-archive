@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "completed_at": "2026-07-14T21:16:38-04:00",
+  "policy": {
+    "canonical_model": "insectnet-v0.1.0",
+    "canonical_sha256": "5e6ecfc68d78a2cf2e9e9e47da5cb58d696e8de354fd620cfcccc5db9da48702",
+    "public_location_data": "removed",
+    "non_v01_public_models": "none",
+    "birdnet_pi": "read-only and unchanged"
+  },
+  "github": {
+    "repository": "vortexpjeff/insectnet",
+    "repository_recreated": true,
+    "new_repository_id": 1301074227,
+    "new_root_commit": "11b56fff9276fae9f9889cf561df247c5cd008d6",
+    "tag": "v0.1.0",
+    "former_location_bearing_commit_api_status": 422,
+    "former_location_bearing_raw_status": 404,
+    "public_privacy_scan_violations": 0,
+    "release_model_sha256_verified": true
+  },
+  "hugging_face": {
+    "repository": "TheVortexProject/insectnet",
+    "repository_recreated": true,
+    "new_root_commit": "96081fee19b1bfe9e480177d9be9751ec2818e4c",
+    "tag": "v0.1.0",
+    "former_location_bearing_commit_status": 404,
+    "public_privacy_scan_violations": 0,
+    "release_model_sha256_verified": true
+  },
+  "local_cleanup": {
+    "non_v01_workstation_files_quarantined_and_hash_verified_before_removal": 18,
+    "temporary_pre_cleanup_repository_mirrors_removed_after_public_verification": true,
+    "temporary_hugging_face_snapshot_removed_after_public_verification": true,
+    "temporary_authentication_helpers_removed": true,
+    "historical_checksums_and_findings_retained_without_artifact_bytes": true
+  },
+  "verification": {
+    "source_tests_passed": 18,
+    "ruff": "passed",
+    "wheel_contains_exact_model_and_manifest": true,
+    "source_distribution_contains_exact_model_manifest_tests_and_docs": true,
+    "fresh_wheel_verify_and_score": "passed",
+    "extracted_source_distribution_tests": "18 passed",
+    "independent_blocker_high_review": "APPROVE"
+  },
+  "remaining_boundary": {
+    "pi_non_v01_backups": "still present because Pi access remained read-only",
+    "pi_insectnet_sidecar": "inactive",
+    "birdnet_core": "unchanged"
+  }
+}
