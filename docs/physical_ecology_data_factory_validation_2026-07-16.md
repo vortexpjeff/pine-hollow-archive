@@ -335,12 +335,12 @@ Two additional retained recordings arrived during review and were imported by th
 ### Final live state after blocker closure
 
 - schema version: 5;
-- Commons events/media: 180 / 180;
-- acoustic events: 117;
-- exact windows: 702;
-- assertions: 234;
-- raw/current context links: 55 / 52;
-- jobs: 29 successful, 0 non-success;
+- Commons events/media: 182 / 182;
+- acoustic events: 118;
+- exact windows: 708;
+- assertions: 236;
+- raw/current context links: 57 / 54;
+- jobs: 32 successful, 0 non-success;
 - SQLite integrity: `ok`;
 - Commons foreign-key violations: 0;
 - legacy `label_events → clips` violations: unchanged at 32;
@@ -383,3 +383,18 @@ The first scheduled post-release cycle fired at `2026-07-16 11:40:16 EDT` withou
 - all 29 jobs remained successful.
 
 This is the final production acceptance evidence: the installed timer woke the sandboxed worker on schedule, found the archive settled, performed no unnecessary work, and returned cleanly to the waiting state.
+
+The next unattended cycle fired at `2026-07-16 11:50:48 EDT` and exercised the non-empty path:
+
+- run ID: `run_13a3cf0bb4914c3486881397e53e9cfd`;
+- status: `success`;
+- one newly retained field recording imported;
+- 6 acoustic windows and 2 assertions appended;
+- one eligible Observatory snapshot archived immutably;
+- one environmental and one visual non-causal context link appended;
+- all 3 new jobs completed successfully;
+- GPU automation remained false;
+- SQLite integrity remained `ok`;
+- the timer returned to waiting with its next run scheduled for `12:00:48 EDT`.
+
+Together, the 11:40 no-work cycle and 11:50 evidence-bearing cycle verify both ordinary production branches under unattended scheduling.
