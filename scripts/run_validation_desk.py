@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from commons_lab.schema import migrate
-from commons_lab.safe_paths import resolve_no_symlinks
+from commons_lab.safe_paths import read_bytes_no_symlinks
 from commons_lab.validation import (
     PROTOCOL_VERSION,
     record_validation_review,
@@ -260,10 +260,9 @@ def verified_item_audio(
     if str(row[6]) != PROTOCOL_VERSION:
         raise ValueError("validation item belongs to an inactive validation protocol")
     try:
-        path = resolve_no_symlinks(str(row[0]), require_file=True)
-    except ValueError as exc:
+        source_bytes = read_bytes_no_symlinks(str(row[0]))
+    except (OSError, ValueError) as exc:
         raise ValueError("validation audio is unavailable or symlinked") from exc
-    source_bytes = path.read_bytes()
     actual = hashlib.sha256(source_bytes).hexdigest()
     metadata = json.loads(str(row[5]))
     frozen = str(metadata.get("media_sha256", ""))

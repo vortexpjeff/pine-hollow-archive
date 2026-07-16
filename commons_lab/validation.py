@@ -1182,16 +1182,19 @@ def promote_validation_sentinel(
         """
         SELECT i.event_id,i.media_id,i.start_sample,i.end_sample,i.sample_rate,
                i.sampling_metadata_json,m.sha256,r.insect_presence,r.chicken_presence,
-               r.signal_quality,r.review_id
+               r.signal_quality,r.review_id,p.protocol_version
         FROM commons_validation_items AS i
         JOIN commons_media AS m ON m.media_id=i.media_id
         JOIN commons_validation_reviews AS r ON r.item_id=i.item_id
+        JOIN commons_validation_packets AS p ON p.packet_id=i.packet_id
         WHERE i.item_id=? AND i.state='completed'
         """,
         (item_id,),
     ).fetchone()
     if row is None:
         raise ValueError("sentinel promotion requires a completed validation review")
+    if str(row[11]) != PROTOCOL_VERSION:
+        raise ValueError("validation item belongs to an inactive validation protocol")
     if "uncertain" in {str(row[7]), str(row[8])}:
         raise ValueError("uncertain validation reviews cannot become sentinels")
     metadata = json.loads(str(row[5]))

@@ -150,6 +150,7 @@ The desk:
 - serves no external JavaScript, fonts, analytics, or assets;
 - sends no-store, content-type, frame, and content-security headers;
 - verifies actual audio bytes against both the Commons media hash and frozen packet hash before serving;
+- opens every audio path component descriptor-relatively with `O_NOFOLLOW`, then hashes and slices bytes from that same final descriptor;
 - rejects symlinked or unavailable audio.
 
 The desk never publishes or uploads audio.
@@ -415,7 +416,7 @@ Append-only pass/drift/missing observations.
 5. Read the packet report after completion.
 6. Do not change thresholds from one small packet.
 7. After several weeks, inspect cumulative intervals, control findings, confounders, and coverage.
-8. Promote only clear, stable examples into the sentinel foundation.
+8. Promote only clear, stable examples from the active protocol into the sentinel foundation; the core promotion function rejects historical protocols.
 
 ## First-month interpretation
 

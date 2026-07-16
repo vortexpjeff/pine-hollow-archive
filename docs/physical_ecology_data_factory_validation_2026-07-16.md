@@ -573,3 +573,12 @@ The final read-only v4 review found two unresolved hardening issues:
 2. audio bytes are read and hashed once after component-wise no-symlink validation, but the final pathname open is not descriptor-relative `openat`/`O_NOFOLLOW` traversal and therefore retains a narrow local check/open race.
 
 Neither finding altered the completed packet or reviews. No sentinel was promoted. The factory timer and service remained inactive at wrap-up. These items are recorded rather than hidden or expanded into another repair cycle during this session.
+
+### Follow-up closure before factory restart
+
+Both recorded findings were closed in a bounded follow-up:
+
+- sentinel promotion now joins the item's packet and rejects any protocol other than the active `PROTOCOL_VERSION`;
+- Validation Desk audio now traverses from the filesystem root with descriptor-relative `open(..., dir_fd=...)`, `O_DIRECTORY` for parent components, and `O_NOFOLLOW` for every component. It verifies a regular final descriptor, reads bytes from that descriptor once, and hashes/slices those same bytes without a pathname reopen.
+
+Focused regressions cover inactive-protocol sentinel rejection, descriptor-only audio reads, and ancestor-symlink rejection. The complete test suite and live timer restart verification follow this record.

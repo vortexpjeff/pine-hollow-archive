@@ -94,19 +94,15 @@ class ValidationDeskTest(unittest.TestCase):
                 verified_item_audio(conn, item_id=item_id, scope="full"),
                 audio.read_bytes(),
             )
-            original_read_bytes = Path.read_bytes
-            read_calls = 0
-
-            def counted_read_bytes(path):
-                nonlocal read_calls
-                read_calls += 1
-                if read_calls > 1:
-                    raise AssertionError("validation audio was reopened")
-                return original_read_bytes(path)
-
-            with patch.object(Path, "read_bytes", counted_read_bytes):
-                verified_item_audio(conn, item_id=item_id, scope="window")
-            self.assertEqual(read_calls, 1)
+            with patch.object(
+                Path,
+                "read_bytes",
+                side_effect=AssertionError("validation audio reopened a pathname"),
+            ):
+                descriptor_payload = verified_item_audio(
+                    conn, item_id=item_id, scope="window"
+                )
+            self.assertEqual(descriptor_payload, window_payload)
             symlink_parent = Path(td) / "linked-parent"
             symlink_parent.symlink_to(Path(td), target_is_directory=True)
             conn.execute(

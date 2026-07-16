@@ -1096,6 +1096,17 @@ class ValidationMetricsAndSentinelTest(unittest.TestCase):
                 signal_quality="clear",
                 reviewed_at="2026-07-16T16:10:00+00:00",
             )
+            with patch(
+                "commons_lab.validation.PROTOCOL_VERSION",
+                "weekly_blinded_future",
+            ):
+                with self.assertRaisesRegex(ValueError, "inactive validation protocol"):
+                    promote_validation_sentinel(
+                        conn,
+                        item_id=item[0],
+                        promoted_by="human:test",
+                        promoted_at="2026-07-16T16:20:00+00:00",
+                    )
             sentinel_id = promote_validation_sentinel(
                 conn,
                 item_id=item[0],
