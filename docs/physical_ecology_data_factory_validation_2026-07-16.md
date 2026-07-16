@@ -582,3 +582,12 @@ Both recorded findings were closed in a bounded follow-up:
 - Validation Desk audio now traverses from the filesystem root with descriptor-relative `open(..., dir_fd=...)`, `O_DIRECTORY` for parent components, and `O_NOFOLLOW` for every component. It verifies a regular final descriptor, reads bytes from that descriptor once, and hashes/slices those same bytes without a pathname reopen.
 
 Focused regressions cover inactive-protocol sentinel rejection, descriptor-only audio reads, and ancestor-symlink rejection. The complete test suite and live timer restart verification follow this record.
+
+### Factory restart verification
+
+- 72/72 unittest and 72/72 pytest passed after both fixes;
+- compilation and diff checks passed;
+- follow-up implementation commit `16c2344e2d6af4daee171fe5aa25d3390d9c5414` matched `origin/master` exactly;
+- `pine-hollow-data-factory.timer` was enabled and started successfully;
+- the enabling boundary triggered scheduled run `run_f74d6677628c45e5ada1f85e5d366c2a`, which completed with service result `success` and exit status 0;
+- the one-shot service returned to inactive/dead after completion, while the timer remained active with its next ten-minute trigger scheduled.
