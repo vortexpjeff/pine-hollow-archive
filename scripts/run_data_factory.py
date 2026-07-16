@@ -11,7 +11,7 @@ import socket
 import sqlite3
 import sys
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +27,15 @@ from commons_lab.automation import finish_run, start_run
 from commons_lab.factory import FactoryConfig, enqueue_cycle, run_jobs
 from commons_lab.jobs import append_research_record, enqueue_job
 from commons_lab.schema import SCHEMA_VERSION, migrate
+from commons_lab.validation import (
+    PROTOCOL_VERSION,
+    generate_weekly_packet,
+    promote_validation_sentinel,
+    record_validation_review,
+    validation_report,
+    validation_sampling_readiness,
+    verify_validation_sentinels,
+)
 
 DEFAULT_DB = ROOT / "archive.db"
 DEFAULT_DATA_ROOT = ROOT / "private" / "commons_lab"
@@ -205,6 +214,11 @@ def command_status(args: argparse.Namespace) -> None:
         "commons_job_transitions",
         "commons_research_records",
         "commons_runs",
+        "commons_validation_packets",
+        "commons_validation_items",
+        "commons_validation_reviews",
+        "commons_validation_sentinels",
+        "commons_validation_sentinel_checks",
     )
     counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in tables}
     job_states = dict(
@@ -291,6 +305,130 @@ def command_record_review(args: argparse.Namespace) -> None:
     emit({"assertion_id": assertion_id, "append_only": True})
 
 
+def command_validation_packet(args: argparse.Namespace) -> None:
+    conn = connect(args.db.expanduser().resolve())
+    migrate(conn)
+    selected_week = None if args.week_start is None else date.fromisoformat(args.week_start)
+    result = generate_weekly_packet(conn, week_start=selected_week)
+    conn.close()
+    emit(asdict(result))
+
+
+def command_validation_status(args: argparse.Namespace) -> None:
+    conn = connect(args.db.expanduser().resolve())
+    migrate(conn)
+    packets = [
+        {
+            "packet_id": str(row[0]),
+            "week_start": str(row[1]),
+            "state": str(row[2]),
+            "completed": int(row[3]),
+            "total": int(row[4]),
+            "manifest_sha256": str(row[5]),
+            "protocol_version": str(row[6]),
+            "active": str(row[6]) == PROTOCOL_VERSION,
+        }
+        for row in conn.execute(
+            """
+            SELECT p.packet_id,p.week_start,p.state,
+                   SUM(CASE WHEN i.state='completed' THEN 1 ELSE 0 END),
+                   COUNT(i.item_id),p.manifest_sha256,p.protocol_version
+            FROM commons_validation_packets AS p
+            LEFT JOIN commons_validation_items AS i ON i.packet_id=p.packet_id
+            GROUP BY p.packet_id ORDER BY p.week_start DESC,p.created_at DESC
+            """
+        )
+    ]
+    sentinels = {
+        "active": int(
+            conn.execute(
+                "SELECT COUNT(*) FROM commons_validation_sentinels WHERE active=1"
+            ).fetchone()[0]
+        ),
+        "latest_checks": [
+            {
+                "sentinel_id": str(row[0]),
+                "checked_at": str(row[1]),
+                "status": str(row[2]),
+                "error": None if row[3] is None else str(row[3]),
+            }
+            for row in conn.execute(
+                """
+                SELECT c.sentinel_id,c.checked_at,c.status,c.error
+                FROM commons_validation_sentinel_checks AS c
+                JOIN (
+                    SELECT sentinel_id,MAX(checked_at) AS latest
+                    FROM commons_validation_sentinel_checks GROUP BY sentinel_id
+                ) AS latest
+                  ON latest.sentinel_id=c.sentinel_id AND latest.latest=c.checked_at
+                ORDER BY c.sentinel_id
+                """
+            )
+        ],
+    }
+    readiness = validation_sampling_readiness(conn)
+    conn.close()
+    active_packet_id = next(
+        (packet["packet_id"] for packet in packets if packet["active"]), None
+    )
+    emit(
+        {
+            "readiness": readiness,
+            "active_packet_id": active_packet_id,
+            "packets": packets,
+            "sentinels": sentinels,
+        }
+    )
+
+
+def command_validation_report(args: argparse.Namespace) -> None:
+    conn = connect(args.db.expanduser().resolve())
+    migrate(conn)
+    report = validation_report(conn, packet_id=args.packet_id)
+    conn.close()
+    emit(report)
+
+
+def command_validation_review(args: argparse.Namespace) -> None:
+    conn = connect(args.db.expanduser().resolve())
+    migrate(conn)
+    result = record_validation_review(
+        conn,
+        item_id=args.item_id,
+        reviewer=args.reviewer,
+        insect_presence=args.insect_presence,
+        chicken_presence=args.chicken_presence,
+        signal_quality=args.signal_quality,
+        confounders=args.confounder,
+        notes=args.notes,
+        review_seconds=args.review_seconds,
+        reviewed_at=args.reviewed_at or datetime.now(timezone.utc).isoformat(),
+    )
+    conn.close()
+    emit(asdict(result))
+
+
+def command_validation_promote_sentinel(args: argparse.Namespace) -> None:
+    conn = connect(args.db.expanduser().resolve())
+    migrate(conn)
+    sentinel_id = promote_validation_sentinel(
+        conn,
+        item_id=args.item_id,
+        promoted_by=args.promoted_by,
+        promoted_at=args.promoted_at or datetime.now(timezone.utc).isoformat(),
+    )
+    conn.close()
+    emit({"sentinel_id": sentinel_id, "fresh_audio_rescore": False})
+
+
+def command_validation_check_sentinels(args: argparse.Namespace) -> None:
+    conn = connect(args.db.expanduser().resolve())
+    migrate(conn)
+    result = verify_validation_sentinels(conn)
+    conn.close()
+    emit(result)
+
+
 def command_research_log(args: argparse.Namespace) -> None:
     conn = connect(args.db.expanduser().resolve())
     migrate(conn)
@@ -362,6 +500,61 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument("--supersedes")
     review.add_argument("--notes")
     review.set_defaults(func=command_record_review)
+
+    validation_packet = sub.add_parser(
+        "validation-packet",
+        help="Create or replay one deterministic weekly blinded packet",
+    )
+    validation_packet.add_argument("--week-start", help="Local Monday as YYYY-MM-DD")
+    validation_packet.set_defaults(func=command_validation_packet)
+
+    validation_status = sub.add_parser(
+        "validation-status", help="Report packet progress, readiness, and sentinels"
+    )
+    validation_status.set_defaults(func=command_validation_status)
+
+    validation_report_parser = sub.add_parser(
+        "validation-report", help="Emit packet or cumulative scientific metrics"
+    )
+    validation_report_parser.add_argument("--packet-id")
+    validation_report_parser.set_defaults(func=command_validation_report)
+
+    validation_review = sub.add_parser(
+        "validation-review", help="Append one two-label validation judgment"
+    )
+    validation_review.add_argument("--item-id", required=True)
+    validation_review.add_argument("--reviewer", required=True)
+    validation_review.add_argument(
+        "--insect-presence", choices=("present", "absent", "uncertain"), required=True
+    )
+    validation_review.add_argument(
+        "--chicken-presence", choices=("present", "absent", "uncertain"), required=True
+    )
+    validation_review.add_argument(
+        "--signal-quality",
+        choices=("clear", "distant", "overlapping", "clipped", "noisy", "inaudible"),
+        required=True,
+    )
+    validation_review.add_argument("--confounder", action="append", default=[])
+    validation_review.add_argument("--notes")
+    validation_review.add_argument("--review-seconds", type=float)
+    validation_review.add_argument("--reviewed-at")
+    validation_review.set_defaults(func=command_validation_review)
+
+    validation_promote = sub.add_parser(
+        "validation-promote-sentinel",
+        help="Promote one decided reviewed item into the artifact sentinel set",
+    )
+    validation_promote.add_argument("--item-id", required=True)
+    validation_promote.add_argument("--promoted-by", required=True)
+    validation_promote.add_argument("--promoted-at")
+    validation_promote.set_defaults(func=command_validation_promote_sentinel)
+
+    validation_check = sub.add_parser(
+        "validation-check-sentinels",
+        help="Append byte/span/model-context checks for active sentinels",
+    )
+    validation_check.set_defaults(func=command_validation_check_sentinels)
 
     research = sub.add_parser("research-log", help="Append a research/development record")
     research.add_argument("--record-type", choices=("research", "decision", "development", "experiment", "validation", "incident", "operation"), required=True)

@@ -252,3 +252,30 @@ Required work:
 4. test idempotency, lease, failure, resource and privacy behavior;
 5. document operation and rollback;
 6. verify manually before adding it to the CPU cycle.
+
+## Weekly field validation
+
+The factory now creates one deterministic blinded packet per local week when the archived frame passes the protocol readiness gate.
+
+Quick status:
+
+```bash
+python3 scripts/run_data_factory.py validation-status
+```
+
+Open the private local desk from Windows with `launch_validation_desk.bat`, or from WSL:
+
+```bash
+./launch_validation_desk.sh
+```
+
+Packet and cumulative reports:
+
+```bash
+python3 scripts/run_data_factory.py validation-report --packet-id vpk_EXACT_ID
+python3 scripts/run_data_factory.py validation-report
+```
+
+The normal review burden is 24 exact spans per week. Do not inspect model scores before saving a judgment, change thresholds from one packet, or promote weekly reviews directly into training data.
+
+Full protocol, launcher, CLI, report interpretation, sentinel and recovery instructions are in [`weekly_field_validation_desk.md`](weekly_field_validation_desk.md).

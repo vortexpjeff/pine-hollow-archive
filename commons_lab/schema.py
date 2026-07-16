@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 DDL = """
 CREATE TABLE IF NOT EXISTS commons_schema_versions (
@@ -334,6 +334,94 @@ CREATE TABLE IF NOT EXISTS commons_research_records (
     FOREIGN KEY(related_event_id) REFERENCES commons_events(event_id)
 );
 
+CREATE TABLE IF NOT EXISTS commons_validation_packets (
+    packet_id TEXT PRIMARY KEY,
+    protocol_version TEXT NOT NULL,
+    week_start TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    sampling_seed TEXT NOT NULL,
+    target_count INTEGER NOT NULL CHECK (target_count > 0),
+    state TEXT NOT NULL DEFAULT 'ready'
+        CHECK (state IN ('ready', 'in_progress', 'completed')),
+    manifest_sha256 TEXT NOT NULL CHECK (length(manifest_sha256) = 64),
+    manifest_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    UNIQUE(protocol_version, week_start)
+);
+
+CREATE TABLE IF NOT EXISTS commons_validation_items (
+    item_id TEXT PRIMARY KEY,
+    packet_id TEXT NOT NULL,
+    position INTEGER NOT NULL CHECK (position > 0),
+    event_id TEXT NOT NULL,
+    media_id TEXT NOT NULL,
+    source_recording_id TEXT NOT NULL,
+    start_sample INTEGER NOT NULL CHECK (start_sample >= 0),
+    end_sample INTEGER NOT NULL CHECK (end_sample > start_sample),
+    sample_rate INTEGER NOT NULL CHECK (sample_rate > 0),
+    lane TEXT NOT NULL
+        CHECK (lane IN ('model_positive', 'boundary', 'random_control', 'blind_repeat')),
+    source_item_id TEXT,
+    primary_class_name TEXT,
+    primary_bundle_id TEXT,
+    state TEXT NOT NULL DEFAULT 'pending'
+        CHECK (state IN ('pending', 'completed')),
+    sampling_metadata_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    UNIQUE(packet_id, position),
+    FOREIGN KEY(packet_id) REFERENCES commons_validation_packets(packet_id),
+    FOREIGN KEY(event_id) REFERENCES commons_events(event_id),
+    FOREIGN KEY(media_id) REFERENCES commons_media(media_id),
+    FOREIGN KEY(source_item_id) REFERENCES commons_validation_items(item_id)
+);
+
+CREATE TABLE IF NOT EXISTS commons_validation_reviews (
+    review_id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL UNIQUE,
+    reviewer TEXT NOT NULL,
+    insect_presence TEXT NOT NULL
+        CHECK (insect_presence IN ('present', 'absent', 'uncertain')),
+    chicken_presence TEXT NOT NULL
+        CHECK (chicken_presence IN ('present', 'absent', 'uncertain')),
+    signal_quality TEXT NOT NULL
+        CHECK (signal_quality IN ('clear', 'distant', 'overlapping', 'clipped', 'noisy', 'inaudible')),
+    confounders_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT,
+    review_seconds REAL CHECK (review_seconds IS NULL OR review_seconds >= 0),
+    assertion_ids_json TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(item_id) REFERENCES commons_validation_items(item_id)
+);
+
+CREATE TABLE IF NOT EXISTS commons_validation_sentinels (
+    sentinel_id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL UNIQUE,
+    event_id TEXT NOT NULL,
+    media_id TEXT NOT NULL,
+    expected_media_sha256 TEXT NOT NULL CHECK (length(expected_media_sha256) = 64),
+    expected_context_json TEXT NOT NULL,
+    label_json TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    promoted_by TEXT NOT NULL,
+    promoted_at TEXT NOT NULL,
+    FOREIGN KEY(item_id) REFERENCES commons_validation_items(item_id),
+    FOREIGN KEY(event_id) REFERENCES commons_events(event_id),
+    FOREIGN KEY(media_id) REFERENCES commons_media(media_id)
+);
+
+CREATE TABLE IF NOT EXISTS commons_validation_sentinel_checks (
+    check_id TEXT PRIMARY KEY,
+    sentinel_id TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pass', 'drift', 'missing')),
+    observed_json TEXT NOT NULL,
+    error TEXT,
+    FOREIGN KEY(sentinel_id) REFERENCES commons_validation_sentinels(sentinel_id)
+);
+
 CREATE TRIGGER IF NOT EXISTS commons_guard_assertions_update
 BEFORE UPDATE ON commons_assertions
 BEGIN
@@ -392,6 +480,72 @@ CREATE TRIGGER IF NOT EXISTS commons_guard_research_records_delete
 BEFORE DELETE ON commons_research_records
 BEGIN
     SELECT RAISE(ABORT, 'research records are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_packet_manifest_update
+BEFORE UPDATE OF protocol_version, week_start, timezone, sampling_seed,
+                 target_count, manifest_sha256, manifest_json, created_at
+ON commons_validation_packets
+BEGIN
+    SELECT RAISE(ABORT, 'validation packet manifests are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_item_manifest_update
+BEFORE UPDATE OF packet_id, position, event_id, media_id, source_recording_id, start_sample,
+                 end_sample, sample_rate, lane, source_item_id,
+                 primary_class_name, primary_bundle_id,
+                 sampling_metadata_json, created_at
+ON commons_validation_items
+BEGIN
+    SELECT RAISE(ABORT, 'validation item manifests are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_packets_delete
+BEFORE DELETE ON commons_validation_packets
+BEGIN
+    SELECT RAISE(ABORT, 'validation packets are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_items_delete
+BEFORE DELETE ON commons_validation_items
+BEGIN
+    SELECT RAISE(ABORT, 'validation items are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_reviews_update
+BEFORE UPDATE ON commons_validation_reviews
+BEGIN
+    SELECT RAISE(ABORT, 'validation reviews are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_reviews_delete
+BEFORE DELETE ON commons_validation_reviews
+BEGIN
+    SELECT RAISE(ABORT, 'validation reviews are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_sentinels_update
+BEFORE UPDATE ON commons_validation_sentinels
+BEGIN
+    SELECT RAISE(ABORT, 'validation sentinels are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_sentinels_delete
+BEFORE DELETE ON commons_validation_sentinels
+BEGIN
+    SELECT RAISE(ABORT, 'validation sentinels are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_sentinel_checks_update
+BEFORE UPDATE ON commons_validation_sentinel_checks
+BEGIN
+    SELECT RAISE(ABORT, 'validation sentinel checks are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_validation_sentinel_checks_delete
+BEFORE DELETE ON commons_validation_sentinel_checks
+BEGIN
+    SELECT RAISE(ABORT, 'validation sentinel checks are append-only');
 END;
 
 CREATE TRIGGER IF NOT EXISTS commons_guard_private_publication_update
@@ -499,12 +653,56 @@ CREATE INDEX IF NOT EXISTS idx_commons_jobs_state_energy_priority ON commons_job
 CREATE INDEX IF NOT EXISTS idx_commons_jobs_lease ON commons_jobs(state, leased_until);
 CREATE INDEX IF NOT EXISTS idx_commons_job_transitions_job_time ON commons_job_transitions(job_id, transitioned_at);
 CREATE INDEX IF NOT EXISTS idx_commons_research_records_type_time ON commons_research_records(record_type, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_commons_validation_packets_week ON commons_validation_packets(week_start, state);
+CREATE INDEX IF NOT EXISTS idx_commons_validation_items_packet ON commons_validation_items(packet_id, position, state);
+CREATE INDEX IF NOT EXISTS idx_commons_validation_items_event ON commons_validation_items(event_id, start_sample);
+CREATE INDEX IF NOT EXISTS idx_commons_validation_items_recording ON commons_validation_items(source_recording_id);
+CREATE INDEX IF NOT EXISTS idx_commons_validation_sentinels_active ON commons_validation_sentinels(active, promoted_at);
+CREATE INDEX IF NOT EXISTS idx_commons_validation_sentinel_checks_time ON commons_validation_sentinel_checks(sentinel_id, checked_at);
 """
 
 
 def migrate(conn: sqlite3.Connection) -> None:
     """Apply the Commons Lab schema without altering legacy archive tables."""
     conn.execute("PRAGMA foreign_keys = ON")
+    validation_items_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='commons_validation_items'"
+    ).fetchone() is not None
+    if validation_items_exists:
+        columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(commons_validation_items)")
+        }
+        if "source_recording_id" not in columns:
+            conn.execute("DROP TRIGGER IF EXISTS commons_guard_validation_item_manifest_update")
+            conn.execute(
+                "ALTER TABLE commons_validation_items ADD COLUMN source_recording_id TEXT"
+            )
+            conn.execute(
+                """
+                UPDATE commons_validation_items
+                SET source_recording_id=(
+                    SELECT MIN(w.source_recording_id)
+                    FROM commons_acoustic_windows AS w
+                    WHERE w.event_id=commons_validation_items.event_id
+                      AND w.media_id=commons_validation_items.media_id
+                      AND w.start_sample=commons_validation_items.start_sample
+                      AND w.end_sample=commons_validation_items.end_sample
+                      AND w.sample_rate=commons_validation_items.sample_rate
+                )
+                WHERE source_recording_id IS NULL
+                """
+            )
+            missing = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM commons_validation_items WHERE source_recording_id IS NULL"
+                ).fetchone()[0]
+            )
+            if missing:
+                conn.rollback()
+                raise RuntimeError(
+                    f"cannot backfill source recording identity for {missing} validation items"
+                )
     conn.executescript(DDL)
     conn.executemany(
         """
@@ -517,6 +715,8 @@ def migrate(conn: sqlite3.Connection) -> None:
             (3, "Automation run ledger and quality-measurement indices"),
             (4, "Physical-ecology acoustic, context, job, and research automation line"),
             (5, "Current nearest-context view and reviewed factory hardening"),
+            (6, "Blinded weekly field-validation packets, reviews, and sentinels"),
+            (7, "Frozen source-recording identity and complete validation immutability"),
         ],
     )
     conn.commit()

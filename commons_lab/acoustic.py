@@ -683,7 +683,7 @@ def record_human_acoustic_review(
     media_id: str,
     bundle_id: str,
     class_name: str,
-    present: bool,
+    present: bool | None,
     certainty: str,
     reviewer: str,
     start_sample: int,
@@ -691,6 +691,11 @@ def record_human_acoustic_review(
     reviewed_at: str,
     supersedes_assertion_id: str | None = None,
     notes: str | None = None,
+    training_eligible: bool | None = None,
+    review_context: Mapping[str, Any] | None = None,
+    manage_transaction: bool = True,
+    complete_calibration_queue: bool = True,
+    mark_event_reviewed: bool = True,
 ) -> str:
     """Append a span-bounded human assertion; corrections supersede, never edit."""
     if certainty not in {"confirmed", "probable", "uncertain"}:
@@ -759,7 +764,7 @@ def record_human_acoustic_review(
     value = {
         "bundle_id": bundle_id,
         "class_name": class_name,
-        "present": bool(present),
+        "present": None if present is None else bool(present),
         "certainty": certainty,
         "reviewer": reviewer,
         "reviewed_at": reviewed_at,
@@ -767,13 +772,20 @@ def record_human_acoustic_review(
         "end_sample": end_sample,
         "supersedes_assertion_id": supersedes_assertion_id,
         "notes": notes,
-        "training_eligible": certainty == "confirmed",
+        "training_eligible": (
+            certainty == "confirmed"
+            if training_eligible is None
+            else bool(training_eligible)
+        ),
     }
+    if review_context:
+        value.update(dict(review_context))
     key = _canonical_json(value)
     assertion_id = _stable_id("ast", f"{event_id}|human|{key}")
     conn.execute("PRAGMA foreign_keys=ON")
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        if manage_transaction:
+            conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             """
             INSERT INTO commons_assertions(
@@ -793,20 +805,24 @@ def record_human_acoustic_review(
                 reviewed_at,
             ),
         )
-        conn.execute(
-            "UPDATE commons_events SET review_state='reviewed' WHERE event_id=?",
-            (event_id,),
-        )
-        conn.execute(
-            """
-            UPDATE commons_review_queue
-            SET state='completed', updated_at=?
-            WHERE event_id=? AND bundle_id=? AND state IN ('pending', 'in_review')
-            """,
-            (reviewed_at, event_id, bundle_id),
-        )
-        conn.commit()
+        if mark_event_reviewed:
+            conn.execute(
+                "UPDATE commons_events SET review_state='reviewed' WHERE event_id=?",
+                (event_id,),
+            )
+        if complete_calibration_queue:
+            conn.execute(
+                """
+                UPDATE commons_review_queue
+                SET state='completed', updated_at=?
+                WHERE event_id=? AND bundle_id=? AND state IN ('pending', 'in_review')
+                """,
+                (reviewed_at, event_id, bundle_id),
+            )
+        if manage_transaction:
+            conn.commit()
     except Exception:
-        conn.rollback()
+        if manage_transaction:
+            conn.rollback()
         raise
     return assertion_id

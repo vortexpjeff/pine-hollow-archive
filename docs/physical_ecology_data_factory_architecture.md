@@ -287,6 +287,18 @@ Every imported acoustic event, camera relation, and Observatory snapshot is priv
 4. Preserve signed offset.
 5. Set `causal_claim: false` unless a separate controlled design supports attribution.
 
+## Blinded weekly field validation
+
+Schema version 6 adds an independent human-verification layer without changing imported acoustic evidence or model thresholds.
+
+One deterministic local-week packet freezes 22 unique parent recordings plus two hidden repeats. The review surface exposes exact five-second audio and optional full-recording context while withholding lane, model, score, threshold and crossing state until after the append-only judgment.
+
+Validation writes two span-bounded human assertions per item in one transaction. They carry packet/item/review lineage, do not mark the entire recording reviewed, do not complete the calibration queue, and remain `training_eligible=false`.
+
+The existing scheduled-CPU worker creates at most one packet per protocol/week after a readiness gate. Active promoted sentinels receive weekly byte/span/model-context checks. No validation job invokes the GPU or performs fresh inference.
+
+See [`weekly_field_validation_desk.md`](weekly_field_validation_desk.md) for the sampling, review, report, sentinel, privacy and interpretation contracts.
+
 ## Recovery boundary
 
 Stopping the timer stops new CPU cycles. It does not stop the field listener or camera timer. Existing schema additions may remain dormant. No rollback deletes evidence. The pre-migration SQLite backup is retained under `private/backups/`.

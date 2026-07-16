@@ -8,7 +8,7 @@ import sqlite3
 import subprocess
 import threading
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, Set
 from urllib.parse import quote
@@ -23,6 +23,15 @@ from .context import (
 from .incidents import import_field_incident_ledgers
 from .jobs import claim_job, complete_job, enqueue_job, fail_job, heartbeat_job
 from .safe_paths import resolve_no_symlinks
+from .validation import (
+    LOCAL_TIMEZONE,
+    PROTOCOL_VERSION,
+    active_sentinel_set_hash,
+    generate_weekly_packet,
+    local_week_start,
+    validation_sampling_readiness,
+    verify_validation_sentinels,
+)
 
 
 @dataclass(frozen=True)
@@ -386,6 +395,48 @@ def enqueue_cycle(
             50,
         )
     )
+    validation_week = local_week_start(current, LOCAL_TIMEZONE).isoformat()
+    packet_exists = conn.execute(
+        """
+        SELECT 1 FROM commons_validation_packets
+        WHERE protocol_version=? AND week_start=?
+        """,
+        (PROTOCOL_VERSION, validation_week),
+    ).fetchone() is not None
+    readiness = None if packet_exists else validation_sampling_readiness(conn)
+    if packet_exists or bool(readiness and readiness["ready"]):
+        candidates.append(
+            (
+                "weekly_validation_packet",
+                f"validation-packet:{PROTOCOL_VERSION}:{validation_week}",
+                {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "week_start": validation_week,
+                    "timezone": LOCAL_TIMEZONE,
+                    "target_count": 24,
+                },
+                30,
+            )
+        )
+    else:
+        omitted.append(
+            "weekly_validation_packet: sampling frame not ready "
+            + json.dumps(readiness, sort_keys=True, separators=(",", ":"))
+        )
+    sentinel_hash = active_sentinel_set_hash(conn)
+    if sentinel_hash is not None:
+        candidates.append(
+            (
+                "validation_sentinel_check",
+                f"validation-sentinels:{validation_week}:{sentinel_hash}",
+                {
+                    "week_start": validation_week,
+                    "sentinel_set_sha256": sentinel_hash,
+                    "fresh_audio_rescore": False,
+                },
+                20,
+            )
+        )
     candidates.append(
         (
             "sqlite_integrity",
@@ -526,6 +577,29 @@ def _execute(
             "environmental_links_inserted": environment,
             "causal_claim": False,
         }
+    if job_type == "weekly_validation_packet":
+        if parameters.get("protocol_version") != PROTOCOL_VERSION:
+            raise ValueError("weekly validation job has an unsupported protocol version")
+        if parameters.get("timezone") != LOCAL_TIMEZONE:
+            raise ValueError("weekly validation job has an unsupported timezone")
+        if int(parameters.get("target_count", 0)) != 24:
+            raise ValueError("weekly validation job has an unsupported target count")
+        result = generate_weekly_packet(
+            conn,
+            week_start=date.fromisoformat(str(parameters["week_start"])),
+            timezone_name=LOCAL_TIMEZONE,
+        )
+        return asdict(result)
+    if job_type == "validation_sentinel_check":
+        expected_hash = str(parameters.get("sentinel_set_sha256", ""))
+        current_hash = active_sentinel_set_hash(conn)
+        if current_hash != expected_hash:
+            return {
+                "status": "skipped_stale_sentinel_contract",
+                "expected_sentinel_set_sha256": expected_hash,
+                "current_sentinel_set_sha256": current_hash,
+            }
+        return verify_validation_sentinels(conn)
     if job_type == "sqlite_integrity":
         return _sqlite_integrity(conn)
     if job_type == "gpu_environment_probe":

@@ -16,6 +16,8 @@ JOB_ENERGY_CLASS = {
     "observatory_snapshot": "scheduled_cpu",
     "context_join": "scheduled_cpu",
     "sqlite_integrity": "scheduled_cpu",
+    "weekly_validation_packet": "scheduled_cpu",
+    "validation_sentinel_check": "scheduled_cpu",
     "gpu_environment_probe": "deferrable_gpu",
 }
 ENERGY_CLASSES = {

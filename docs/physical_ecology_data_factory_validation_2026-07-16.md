@@ -398,3 +398,178 @@ The next unattended cycle fired at `2026-07-16 11:50:48 EDT` and exercised the n
 - the timer returned to waiting with its next run scheduled for `12:00:48 EDT`.
 
 Together, the 11:40 no-work cycle and 11:50 evidence-bearing cycle verify both ordinary production branches under unattended scheduling.
+
+## Additive schema-6 weekly field-validation release
+
+This section is additive. It does not revise the schema-5 counts or acceptance evidence above.
+
+The weekly field-validation release adds:
+
+- one deterministic 24-item packet per local week;
+- 22 parent-unique items plus two hidden repeats;
+- balanced positive and boundary lanes for both diagnostic heads;
+- score-independent random controls;
+- exact five-second review audio with optional full-recording context;
+- a separate dependency-free loopback review desk;
+- server-side blinding until an append-only judgment is saved;
+- one atomic review transaction producing two human assertions;
+- `training_eligible=false` for every validation assertion;
+- Wilson intervals, score-band outcomes, control findings, repeat agreement, coverage and burden reporting;
+- manually promoted artifact sentinels with append-only drift checks;
+- explicit `fresh_audio_rescore_performed=false` until a separate inference bridge is approved;
+- fixed scheduled-CPU handlers for packet creation and sentinel checks;
+- no GPU, model, threshold, field-listener, BirdNET, camera, website or publication change.
+
+Focused pre-install verification:
+
+- validation protocol/schema/metrics/automation tests: 12/12 passed;
+- loopback desk/audio/security tests: 2/2 passed;
+- existing factory regression suite: 27/27 passed;
+- CLI command discovery: passed.
+
+The complete scientific and operational contract is recorded in [`weekly_field_validation_desk.md`](weekly_field_validation_desk.md). Live schema migration, packet creation, localhost audio checks, sandboxed worker execution, integrity gates and independent reviews are recorded after they are exercised rather than predicted here.
+
+### Actual schema-6 deployment sequence
+
+The installed ten-minute service reads the working tree directly. Its 13:14 EDT unattended cycle therefore loaded the completed schema/job implementation before the later explicit stop point. That cycle migrated the canonical database to schema 6 and successfully created the first immutable packet. This sequence is recorded as observed rather than rewritten as a staged manual migration.
+
+- packet job: `job_e5ad112a645b788615136c21`;
+- packet: `vpk_993f9ab5b2d01796a72de2b4`;
+- local week: `2026-07-13`;
+- created: `2026-07-16T17:14:49.388444+00:00`;
+- manifest SHA-256: `fafddfddd9a4c6ac8d982656877b174be4b4d77a8be21859144459c7e22c2e74`;
+- items: 24;
+- non-repeat parent recordings: 22 / 22 unique;
+- lane counts: 8 model-positive, 8 boundary, 6 random-control, 2 hidden-repeat;
+- per class: four model-positive and four boundary;
+- boundary balance per class: two above and two below threshold;
+- reviews at acceptance: 0.
+
+The timer and service were then stopped before further live verification. A post-migration, pre-review SQLite safety backup was created at `private/backups/archive-pre-validation-v6-20260716T172058Z.db`, SHA-256 `d4115a113f34711f80f02c9f3cb2a1cd27896676b1781d03d6977d2d2191c459`, with integrity `ok`.
+
+### Native-source audio correction
+
+The first live packet audit correctly rejected playback because retained field WAVs are 48 kHz while model spans are indexed in the 32 kHz inference timeline. No review had been written. A failing 48 kHz-source / 32 kHz-span regression was added before correction.
+
+The desk now converts model sample boundaries to elapsed time and then to nearest native source frames. It preserves source PCM format/rate and performs no resampling. All 24 live packet windows subsequently passed byte-hash verification and produced exactly five seconds at 48 kHz (240,000 frames), with zero observed duration error.
+
+### Final automated and live verification
+
+- full unittest suite: 66/66 passed;
+- full pytest suite: 66/66 passed;
+- Python compilation: clean;
+- production diff whitespace gate: clean outside the two pre-existing user-edited scripts;
+- new-file whitespace: clean;
+- live packet manifest hash recomputation: match;
+- all 24 live exact-window audio payloads: hash-verified and duration-correct;
+- localhost health: pass;
+- pending-page model/score/threshold/selection blinding: pass;
+- tokenless audio request: HTTP 403;
+- non-loopback Host request: HTTP 421;
+- manual bounded-CPU run `run_2c582b70ee3a415a978fc1c84c0e90bd`: success;
+- installed sandbox run `run_2811af22a56d48e1a182f2621d3fb3de`: success, `ExecMainStatus=0`;
+- sandbox reconciliation: zero links inserted;
+- validation packets/items/reviews: 1 / 24 / 0;
+- all 51 jobs: successful;
+- SQLite integrity: `ok`;
+- Commons foreign-key state: clean apart from the unchanged 32 documented legacy `label_events → clips` rows;
+- GPU automation: false.
+
+### Control-independence hardening before review
+
+A final internal sampling audit found that the first packet selected random controls after score-driven lanes. A second protocol selected controls first but still preferred recordings absent from prior packets; because prior packet membership was score-driven, that remained indirect score dependence. Neither packet had any human review.
+
+At this stage of validation, the active protocol was `weekly_blinded_v3`:
+
+- controls are selected first from the full aligned parent-recording frame;
+- control selection ignores model scores;
+- control selection ignores prior packet membership;
+- a week-specific deterministic seed provides rotation;
+- a regression changes every model score and prior-history membership while requiring the control event set to remain identical.
+
+Historical zero-review packets remain immutable evidence but are filtered out of the routine desk:
+
+- v1: `vpk_993f9ab5b2d01796a72de2b4`;
+- v2: `vpk_82f460a25a050e3fdff50b9a`.
+
+The packet active at that stage was:
+
+- v3: `vpk_7ba32f5325a2d82998526715`;
+- manifest SHA-256: `a85c153972528d98cd40ec124d69ae856b05192aeae4b0e86765f5f2ca535ea3`;
+- state: ready;
+- items: 24;
+- reviews: 0;
+- 22 / 22 unique non-repeat parent recordings;
+- controls match a direct full-frame control-sampler recomputation;
+- lane balance: 8 positive, 8 boundary, 6 control, 2 hidden-repeat;
+- per-class boundary balance: two above and two below;
+- all 24 source windows: 48 kHz, exactly five seconds, hash-verified;
+- manifest SHA-256 recomputation: match;
+- routine desk shows v3 and hides v1/v2.
+
+The v3 worker run `run_8e6ededa5ea94c3da8b9799eda3afea9` completed successfully with GPU automation false. Final post-hardening verification is 68/68 unittest and 68/68 pytest, with clean compilation and production diff checks.
+
+### Independent-review corrections: protocol v4 and schema v7
+
+Independent scientific and operational review rejected v3 for general use despite its clean live packet. The implementation used event identity rather than the archived physical `source_recording_id`, cumulative intervals could count a reused parent more than once, control metadata claimed uniformity while date/hour diversity still affected rank, readiness did not execute the full allocation, packet/item deletion and sentinel mutation were not fully guarded, and audio serving reopened verified paths while logging bearer tokens.
+
+The corrected active code protocol is `weekly_blinded_v4` and the Commons schema is version 7:
+
+- every candidate, history set, non-repeat exclusion, manifest item, and report carries frozen `source_recording_id`;
+- two event rows or neighboring windows from one physical recording remain one sampling unit;
+- controls are the first six parent identities under the deterministic week hash, with no score/history/date/hour weighting;
+- readiness and generation use one global allocation planner;
+- packet/item deletion and sentinel update/deletion are blocked;
+- replay verifies manifest hash, header, item count, and every frozen item field;
+- cumulative summaries use at most one reviewed item per source recording;
+- Wilson intervals are labeled descriptive for the realized sample, not design-based population intervals;
+- audio paths reject symlinks in any component, source bytes are read once and hashed once, and slices are made from those verified bytes;
+- inactive-protocol audio is rejected;
+- bearer tokens are redacted from request logs.
+
+Focused post-correction verification passed 17 factory-validation tests and 3 Validation Desk tests. No v4 live packet had been created at this checkpoint; v1-v3 remained historical with zero reviews and the timer remained stopped.
+
+### Verified live v4 checkpoint
+
+After the full corrected tree passed 72/72 unittest and 72/72 pytest, a SQLite backup was created at `private/commons_lab/backups/archive-pre-validation-v4-20260716T143640-0400.db` with SHA-256 `ee87239b6cf339493b7b83e8dc45399d0cf9461f2d8d8b14a17d8fee9b92c5a6` and integrity `ok`.
+
+Schema 7 verification found all 72 historical packet items backfilled with non-null source-recording IDs and all packet/item/sentinel guards installed. Manual CPU run `run_3424e605c48444f2b16dda463a407c4a` then created the first v4 packet:
+
+- packet: `vpk_31d5158ef95e1fe35caff3e4`;
+- manifest SHA-256: `bf7da3f8cad4d98fd7a76cc87cf4511e8428ff6b8b3bf127cb8beffe702cbd5e`;
+- state: ready;
+- items/reviews: 24 / 0;
+- 22 distinct frozen non-repeat source recordings;
+- lanes: 8 positive, 8 boundary, 6 control, 2 hidden repeat;
+- controls exactly matched an independent full-frame deterministic-uniform hash recomputation;
+- manifest replay returned the same packet after verifying every frozen row;
+- all 24 audio windows were hash-verified 48 kHz stereo WAVs with exactly 240,000 frames;
+- the real loopback desk served active v4 audio with HTTP 200, rejected historical v3 audio with HTTP 400, hid v1-v3 from routine navigation, and redacted bearer tokens in logs;
+- all 63 factory jobs were successful, SQLite integrity was `ok`, and the unchanged 32 documented legacy foreign-key rows remained;
+- installed systemd units were mode 0644 and verified with `ProtectSystem=strict`, `ProtectHome=read-only`, `PrivateTmp=yes`, and `NoNewPrivileges=yes`;
+- factory timer and service remained inactive.
+
+### First completed weekly human audit
+
+The operator completed all 24 v4 judgments on 2026-07-16. The packet closed with 24 reviews over 22 distinct source recordings and two hidden repeats.
+
+- insect model-positive lane: 4/4 reviewed windows marked present;
+- insect boundary lane: 2/2 above and 2/2 below threshold marked present;
+- insect random controls: 4/6 marked present;
+- chicken model-positive lane: two present, one absent, and one uncertain across four reviews (2/3 among decided labels);
+- chicken boundary lane: 0/2 above and 1/2 below threshold marked present;
+- chicken random controls: 1/6 marked present;
+- hidden-repeat agreement: 100% for insect presence, chicken presence, and signal quality across both pairs;
+- review burden: 625.8 seconds total (10.4 minutes), with a 23.9-second median per item;
+- uncertainty: one uncertain label among 48 presence labels.
+
+This packet supports a practical field-utility audit, not recall, abundance, occupancy, or causal claims. The strong insect result and insect-positive random controls justify examining candidate burden and threshold calibration in later packets. The small chicken cells are insufficient for broad performance claims.
+
+### Open release findings retained at wrap-up
+
+The final read-only v4 review found two unresolved hardening issues:
+
+1. sentinel promotion checks that an item is completed but does not yet reject an inactive historical protocol at the core function;
+2. audio bytes are read and hashed once after component-wise no-symlink validation, but the final pathname open is not descriptor-relative `openat`/`O_NOFOLLOW` traversal and therefore retains a narrow local check/open race.
+
+Neither finding altered the completed packet or reviews. No sentinel was promoted. The factory timer and service remained inactive at wrap-up. These items are recorded rather than hidden or expanded into another repair cycle during this session.
