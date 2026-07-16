@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 DDL = """
 CREATE TABLE IF NOT EXISTS commons_schema_versions (
@@ -207,6 +207,193 @@ CREATE TABLE IF NOT EXISTS commons_runs (
     FOREIGN KEY(event_id) REFERENCES commons_events(event_id)
 );
 
+CREATE TABLE IF NOT EXISTS commons_acoustic_windows (
+    window_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    media_id TEXT NOT NULL,
+    source_recording_id TEXT NOT NULL,
+    source_event_id TEXT,
+    bundle_id TEXT NOT NULL,
+    model_slug TEXT NOT NULL,
+    class_name TEXT NOT NULL,
+    start_sample INTEGER NOT NULL CHECK (start_sample >= 0),
+    end_sample INTEGER NOT NULL CHECK (end_sample > start_sample),
+    sample_rate INTEGER NOT NULL CHECK (sample_rate > 0),
+    score REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
+    raw_score REAL NOT NULL,
+    threshold REAL NOT NULL CHECK (threshold >= 0.0 AND threshold <= 1.0),
+    crosses_threshold INTEGER NOT NULL CHECK (crosses_threshold IN (0, 1)),
+    score_semantics TEXT NOT NULL,
+    preprocess_recipe_id TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_recording_id, bundle_id, start_sample),
+    FOREIGN KEY(event_id) REFERENCES commons_events(event_id),
+    FOREIGN KEY(media_id) REFERENCES commons_media(media_id)
+);
+
+CREATE TABLE IF NOT EXISTS commons_event_links (
+    link_id TEXT PRIMARY KEY,
+    source_event_id TEXT NOT NULL,
+    target_event_id TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    method TEXT NOT NULL,
+    offset_seconds REAL NOT NULL,
+    confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_event_id, target_event_id, relation, method),
+    CHECK (source_event_id != target_event_id),
+    FOREIGN KEY(source_event_id) REFERENCES commons_events(event_id),
+    FOREIGN KEY(target_event_id) REFERENCES commons_events(event_id)
+);
+
+CREATE VIEW IF NOT EXISTS commons_current_event_links AS
+SELECT link_id, source_event_id, target_event_id, relation, method,
+       offset_seconds, confidence, metadata_json, created_at
+FROM (
+    SELECT links.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY source_event_id, relation, method
+               ORDER BY ABS(offset_seconds), created_at DESC, link_id
+           ) AS nearest_rank
+    FROM commons_event_links AS links
+)
+WHERE nearest_rank = 1;
+
+CREATE TABLE IF NOT EXISTS commons_review_queue (
+    queue_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    bundle_id TEXT NOT NULL,
+    class_name TEXT NOT NULL,
+    score_band TEXT NOT NULL,
+    priority REAL NOT NULL DEFAULT 0.0,
+    reason TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending'
+        CHECK (state IN ('pending', 'in_review', 'completed', 'dismissed')),
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(event_id, bundle_id, score_band),
+    FOREIGN KEY(event_id) REFERENCES commons_events(event_id)
+);
+
+CREATE TABLE IF NOT EXISTS commons_jobs (
+    job_id TEXT PRIMARY KEY,
+    job_key TEXT NOT NULL UNIQUE,
+    job_type TEXT NOT NULL,
+    energy_class TEXT NOT NULL
+        CHECK (energy_class IN ('critical_continuous', 'scheduled_cpu', 'deferrable_gpu', 'manual_high_energy')),
+    state TEXT NOT NULL DEFAULT 'queued'
+        CHECK (state IN ('queued', 'running', 'success', 'skipped', 'failed', 'cancelled')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts >= 1),
+    not_before TEXT,
+    lease_owner TEXT,
+    leased_until TEXT,
+    input_event_id TEXT,
+    parameters_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(input_event_id) REFERENCES commons_events(event_id)
+);
+
+CREATE TABLE IF NOT EXISTS commons_job_transitions (
+    transition_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    from_state TEXT,
+    to_state TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    transitioned_at TEXT NOT NULL,
+    FOREIGN KEY(job_id) REFERENCES commons_jobs(job_id)
+);
+
+CREATE TABLE IF NOT EXISTS commons_research_records (
+    record_id TEXT PRIMARY KEY,
+    recorded_at TEXT NOT NULL,
+    record_type TEXT NOT NULL
+        CHECK (record_type IN ('research', 'decision', 'development', 'experiment', 'validation', 'incident', 'operation')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    sources_json TEXT NOT NULL DEFAULT '[]',
+    related_run_id TEXT,
+    related_job_id TEXT,
+    related_event_id TEXT,
+    author TEXT NOT NULL DEFAULT 'Hermes',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(related_run_id) REFERENCES commons_runs(run_id),
+    FOREIGN KEY(related_job_id) REFERENCES commons_jobs(job_id),
+    FOREIGN KEY(related_event_id) REFERENCES commons_events(event_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_assertions_update
+BEFORE UPDATE ON commons_assertions
+BEGIN
+    SELECT RAISE(ABORT, 'assertions are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_assertions_delete
+BEFORE DELETE ON commons_assertions
+BEGIN
+    SELECT RAISE(ABORT, 'assertions are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_acoustic_windows_update
+BEFORE UPDATE ON commons_acoustic_windows
+BEGIN
+    SELECT RAISE(ABORT, 'acoustic windows are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_acoustic_windows_delete
+BEFORE DELETE ON commons_acoustic_windows
+BEGIN
+    SELECT RAISE(ABORT, 'acoustic windows are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_event_links_update
+BEFORE UPDATE ON commons_event_links
+BEGIN
+    SELECT RAISE(ABORT, 'event links are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_event_links_delete
+BEFORE DELETE ON commons_event_links
+BEGIN
+    SELECT RAISE(ABORT, 'event links are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_job_transitions_update
+BEFORE UPDATE ON commons_job_transitions
+BEGIN
+    SELECT RAISE(ABORT, 'job transitions are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_job_transitions_delete
+BEFORE DELETE ON commons_job_transitions
+BEGIN
+    SELECT RAISE(ABORT, 'job transitions are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_research_records_update
+BEFORE UPDATE ON commons_research_records
+BEGIN
+    SELECT RAISE(ABORT, 'research records are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS commons_guard_research_records_delete
+BEFORE DELETE ON commons_research_records
+BEGIN
+    SELECT RAISE(ABORT, 'research records are append-only');
+END;
+
 CREATE TRIGGER IF NOT EXISTS commons_guard_private_publication_update
 BEFORE UPDATE OF publication_state, privacy_level ON commons_events
 WHEN NEW.publication_state = 'approved' AND NEW.privacy_level != 'public'
@@ -303,6 +490,15 @@ CREATE INDEX IF NOT EXISTS idx_commons_assertions_event ON commons_assertions(ev
 CREATE INDEX IF NOT EXISTS idx_commons_measurements_phenomenon_time ON commons_measurements(phenomenon, observed_at);
 CREATE INDEX IF NOT EXISTS idx_commons_runs_pipeline_time ON commons_runs(pipeline, started_at);
 CREATE INDEX IF NOT EXISTS idx_commons_runs_status_time ON commons_runs(status, started_at);
+CREATE INDEX IF NOT EXISTS idx_commons_acoustic_windows_event ON commons_acoustic_windows(event_id);
+CREATE INDEX IF NOT EXISTS idx_commons_acoustic_windows_class_score ON commons_acoustic_windows(class_name, score DESC);
+CREATE INDEX IF NOT EXISTS idx_commons_event_links_source ON commons_event_links(source_event_id, relation);
+CREATE INDEX IF NOT EXISTS idx_commons_event_links_target ON commons_event_links(target_event_id, relation);
+CREATE INDEX IF NOT EXISTS idx_commons_review_queue_state_priority ON commons_review_queue(state, priority DESC);
+CREATE INDEX IF NOT EXISTS idx_commons_jobs_state_energy_priority ON commons_jobs(state, energy_class, priority DESC, created_at);
+CREATE INDEX IF NOT EXISTS idx_commons_jobs_lease ON commons_jobs(state, leased_until);
+CREATE INDEX IF NOT EXISTS idx_commons_job_transitions_job_time ON commons_job_transitions(job_id, transitioned_at);
+CREATE INDEX IF NOT EXISTS idx_commons_research_records_type_time ON commons_research_records(record_type, recorded_at);
 """
 
 
@@ -319,6 +515,8 @@ def migrate(conn: sqlite3.Connection) -> None:
             (1, "Initial Commons Lab event/evidence/research schema"),
             (2, "Publication and deployment/site provenance guards"),
             (3, "Automation run ledger and quality-measurement indices"),
+            (4, "Physical-ecology acoustic, context, job, and research automation line"),
+            (5, "Current nearest-context view and reviewed factory hardening"),
         ],
     )
     conn.commit()

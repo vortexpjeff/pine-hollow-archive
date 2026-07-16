@@ -1,0 +1,28 @@
+[Unit]
+Description=Pine Hollow physical-ecology data factory (bounded CPU cycle)
+Documentation=file:///mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive/docs/physical_ecology_data_factory_operations.md
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive
+ExecStart=/usr/bin/python3 /mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive/scripts/run_data_factory.py cycle --trigger systemd_timer
+TimeoutStartSec=5min
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=50%
+MemoryMax=1G
+TasksMax=64
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive /home/jvortex/.local/share/insectnet-field /home/jvortex/vortex-site/data
+ReadWritePaths=/mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive/private/commons_lab /home/jvortex/.cache/pine-hollow-commons
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=default.target

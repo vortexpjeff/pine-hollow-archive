@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Pine Hollow physical-ecology data factory every ten minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+RandomizedDelaySec=30s
+AccuracySec=1min
+Persistent=false
+Unit=pine-hollow-data-factory.service
+
+[Install]
+WantedBy=timers.target

@@ -1,20 +1,22 @@
-# Pine Hollow Bioacoustics Archive — .gitignore
-# Keep git focused on code and docs, not data
+# Archive data — stays local
+*.db
+*.db-shm
+*.db-wal
+archive.db*
+birdnet/
+insectnet/
+embeddings/
+temp/
 
-# Audio files — these accumulate from Pi pulls
-birdnet/**/*.mp3
-insectnet/**/*.wav
-embeddings/**/*.npy
+# Trained model artifacts
+models/
 
-# SQLite database — changes every pull
-archive.db
-
-# Temp space
-temp/*
-!temp/.gitkeep
-
-# Python cache
+# Python
 __pycache__/
 *.pyc
-*-venv/
-.venv/
+*.pyo
+.env
+
+# OS
+Thumbs.db
+.DS_Store

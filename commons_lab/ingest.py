@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .safe_paths import resolve_no_symlinks
+
 
 @dataclass(frozen=True)
 class IngestResult:
@@ -169,6 +171,7 @@ def ingest_media(
     width: int | None = None,
     height: int | None = None,
     duration_s: float | None = None,
+    manage_transaction: bool = True,
 ) -> IngestResult:
     """Register a media observation while retaining the source file in place.
 
@@ -176,9 +179,7 @@ def ingest_media(
     event type, and file digest. A retry returns the original IDs and does not
     create duplicate evidence.
     """
-    media_path = Path(path).expanduser().resolve()
-    if not media_path.is_file():
-        raise FileNotFoundError(media_path)
+    media_path = resolve_no_symlinks(path, require_file=True)
     byte_size = media_path.stat().st_size
     sha256 = _hash_file(media_path)
     legacy_event_key = "|".join(
@@ -196,7 +197,8 @@ def ingest_media(
     try:
         # Serialize the check-and-insert sequence across capture processes. A
         # second caller waits here, then observes the committed event below.
-        conn.execute("BEGIN IMMEDIATE")
+        if manage_transaction:
+            conn.execute("BEGIN IMMEDIATE")
         if deployment_id is not None:
             deployment = conn.execute(
                 "SELECT site_id FROM commons_deployments WHERE deployment_id=?",
@@ -235,7 +237,8 @@ def ingest_media(
             ).fetchone()
             if not row:
                 raise RuntimeError("event exists without its expected media record")
-            conn.commit()
+            if manage_transaction:
+                conn.commit()
             return IngestResult(existing[0], row[0], sha256, False)
 
         conn.execute(
@@ -286,9 +289,11 @@ def ingest_media(
                 _json(media_metadata),
             ),
         )
-        conn.commit()
+        if manage_transaction:
+            conn.commit()
     except Exception:
-        conn.rollback()
+        if manage_transaction:
+            conn.rollback()
         raise
 
     return IngestResult(event_id, media_id, sha256, True)
