@@ -1,5 +1,11 @@
 # Research and engineering handoffs
 
+## Current addendum — 2026-07-22
+
+[FrogNet archive and weekly-validation integration](../frognet_field_integration_2026-07-22.md)
+
+This addendum records the third shared-Perch head, Commons schema 8, active `weekly_blinded_v5`, strict FrogNet bundle ingestion, and the current audit cadence. It supersedes only the operational state of the dated handoff below; the July 15–16 chronology remains unchanged.
+
 ## 2026-07-15 through 2026-07-16
 
 [Pine Hollow Field Listener and Physical-Ecology Data Factory — two-day research and engineering handoff](2026-07-16-field-listener-data-factory-research-handoff/README.md)

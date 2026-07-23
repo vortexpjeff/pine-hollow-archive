@@ -6,7 +6,7 @@ The Field Validation Desk is the human-verification layer for Pine Hollow's priv
 
 It answers a narrower question than the factory itself:
 
-> Given exact field recordings and frozen diagnostic model outputs, how often do the proposed insect and chicken signals correspond to what a human can actually hear under current Pine Hollow conditions?
+> Given exact field recordings and frozen diagnostic model outputs, how often do the proposed insect, chicken, and frog signals correspond to what a human can actually hear under current Pine Hollow conditions?
 
 It does not replace evidence integrity checks. It does not retrain either model. It does not turn model scores into ecological truth.
 
@@ -29,7 +29,7 @@ Automated checks establish that:
 The weekly packet estimates:
 
 - empirical positive rate among model-positive recordings;
-- behavior near both diagnostic thresholds;
+- behavior near all three diagnostic thresholds;
 - target-positive findings in score-independent random controls;
 - empirical human-positive rate across score bands;
 - within-reviewer exact agreement on hidden repeats;
@@ -45,7 +45,11 @@ Promotion into any future training corpus requires a separate frozen dataset man
 
 ## Weekly protocol
 
-Protocol identity: `weekly_blinded_v4`
+Protocol identity: `weekly_blinded_v5`
+
+Protocol v5 and Commons schema 8 added FrogNet as a first-class review label on
+2026-07-22. Historical v4 packets remain immutable evidence and cannot receive new
+reviews. See [`frognet_field_integration_2026-07-22.md`](frognet_field_integration_2026-07-22.md).
 
 Routine navigation, direct review pages, CLI review writes, and core append calls accept only the active protocol. Historical packets remain queryable evidence but cannot receive new judgments after a protocol change.
 
@@ -55,16 +59,16 @@ Sampling unit: unique parent recording, except for two intentional hidden repeat
 
 Review unit: one exact imported five-second span.
 
-Packet size: 24 items.
+Packet size: 32 items.
 
 | Lane | Count | Purpose |
 |---|---:|---|
-| Model positive | 8 | Four insect and four chicken threshold-crossers, spread across the positive score range |
-| Boundary | 8 | For each model, two just above and two just below the diagnostic threshold |
+| Model positive | 12 | Four insect, four chicken, and four frog threshold-crossers, spread across each positive score range |
+| Boundary | 12 | For each model, two just above and two just below the diagnostic threshold |
 | Random control | 6 | Score-independent sample selected first from the full eligible frame |
 | Hidden repeat | 2 | Delayed duplicate judgments for within-reviewer consistency |
 
-The six controls are selected before any score-driven lane and ignore prior packet membership. They are the first six parent identities under the week-specific deterministic hash order: no score, history, date, or hour weighting enters control inclusion. The 22 non-repeat items use distinct frozen `source_recording_id` values. The repeat items point to earlier source items but carry independent review records and assertion identities.
+The six controls are selected before any score-driven lane and ignore prior packet membership. They are the first six parent identities under the week-specific deterministic hash order: no score, history, date, or hour weighting enters control inclusion. The 30 non-repeat items use distinct frozen `source_recording_id` values. The repeat items point to earlier source items but carry independent review records and assertion identities.
 
 ## Deterministic sampling
 
@@ -78,7 +82,7 @@ Each packet freezes:
 - selected event, media, and frozen source-recording IDs;
 - exact start/end samples and sample rate;
 - lane and primary class where applicable;
-- both model contexts;
+- all three model contexts;
 - source media SHA-256;
 - selection method;
 - hidden-repeat lineage;
@@ -94,7 +98,7 @@ Later score-driven lanes prefer parent recordings not used by earlier packets. C
 
 A packet is not enqueued until the archived frame contains:
 
-- at least 22 parent recordings with aligned windows from both diagnostic heads;
+- at least 30 parent recordings with aligned windows from all three diagnostic heads;
 - at least six above-threshold parent recordings per class;
 - at least two below-threshold parent recordings per class.
 
@@ -103,22 +107,18 @@ These marginal counts are only diagnostics. Readiness also runs the exact global
 Inspect readiness:
 
 ```bash
-cd /mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive
+cd /path/to/archive-repository
 python3 scripts/run_data_factory.py validation-status
 ```
 
 ## Open the desk
 
-From Windows, double-click:
-
-```text
-C:\Users\Jeffrey\Desktop\pine-hollow-archive\launch_validation_desk.bat
-```
+From Windows, double-click `launch_validation_desk.bat` in the repository checkout.
 
 Or from WSL:
 
 ```bash
-cd /mnt/c/Users/Jeffrey/Desktop/pine-hollow-archive
+cd /path/to/archive-repository
 ./launch_validation_desk.sh
 ```
 
@@ -235,12 +235,13 @@ One desk submission executes one SQLite `BEGIN IMMEDIATE` transaction that:
 1. validates item, packet, media, span, and frozen model context;
 2. appends an insect human assertion;
 3. appends a chicken human assertion;
-4. appends the validation review row;
-5. marks only the validation item complete;
-6. advances packet progress;
-7. completes the packet only when all 24 items are reviewed.
+4. appends a frog human assertion;
+5. appends the validation review row;
+6. marks only the validation item complete;
+7. advances packet progress;
+8. completes the packet only when all 32 items are reviewed.
 
-If either assertion or any later write fails, the entire review rolls back.
+If any assertion or later write fails, the entire review rolls back.
 
 Validation assertions carry:
 
@@ -280,6 +281,7 @@ python3 scripts/run_data_factory.py validation-review \
   --reviewer human:field-reviewer \
   --insect-presence present \
   --chicken-presence absent \
+  --frog-presence absent \
   --signal-quality clear \
   --confounder bird_overlap \
   --notes "Audible insect pulse in exact span."
@@ -333,7 +335,7 @@ Scores remain uncalibrated case-control ranking scores. A displayed score of `0.
 
 ## Sentinel foundation
 
-A completed item with decided insect and chicken labels can be deliberately promoted:
+A completed item with decided insect, chicken, and frog labels can be deliberately promoted:
 
 ```bash
 python3 scripts/run_data_factory.py validation-promote-sentinel \
@@ -354,7 +356,7 @@ Current sentinel checks verify:
 - actual media SHA-256;
 - Commons media SHA-256;
 - exact event/media/span/sample-rate identity;
-- both bundle/class identities;
+- all three bundle/class identities;
 - frozen scores, thresholds, semantics, and preprocessing recipes.
 
 Each check appends an immutable pass/drift/missing row.
@@ -411,7 +413,7 @@ Append-only pass/drift/missing observations.
 
 1. Let the factory create the packet automatically.
 2. Run `validation-status` or open the desk.
-3. Review the 24 items without inspecting model details elsewhere.
+3. Review the 32 items without inspecting model details elsewhere.
 4. Use `uncertain` when evidence is ambiguous.
 5. Read the packet report after completion.
 6. Do not change thresholds from one small packet.
