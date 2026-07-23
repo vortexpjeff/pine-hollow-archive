@@ -177,6 +177,10 @@ def render_review_page(
 <label><input required type="radio" name="chicken_presence" value="present"> Yes</label>
 <label><input type="radio" name="chicken_presence" value="absent"> No</label>
 <label><input type="radio" name="chicken_presence" value="uncertain"> Unsure</label></fieldset>
+<fieldset><legend>Frog or toad vocalization audible in the exact window?</legend>
+<label><input required type="radio" name="frog_presence" value="present"> Yes</label>
+<label><input type="radio" name="frog_presence" value="absent"> No</label>
+<label><input type="radio" name="frog_presence" value="uncertain"> Unsure</label></fieldset>
 <fieldset><legend>Signal quality</legend>
 {''.join(f'<label><input required type="radio" name="signal_quality" value="{value}"> {label}</label>' for value, label in [('clear','Clear'),('distant','Distant'),('overlapping','Overlapping'),('clipped','Clipped'),('noisy','Wind/rain/noise'),('inaudible','Inaudible')])}</fieldset>
 <fieldset><legend>Confounders, if present</legend>
@@ -194,7 +198,7 @@ def render_reveal_page(conn: sqlite3.Connection, *, item_id: str) -> str:
         """
         SELECT i.packet_id,i.position,i.lane,i.primary_class_name,
                i.sampling_metadata_json,r.insect_presence,r.chicken_presence,
-               r.signal_quality,r.reviewed_at
+               r.frog_presence,r.signal_quality,r.reviewed_at
         FROM commons_validation_items AS i
         LEFT JOIN commons_validation_reviews AS r ON r.item_id=i.item_id
         WHERE i.item_id=?
@@ -221,7 +225,7 @@ def render_reveal_page(conn: sqlite3.Connection, *, item_id: str) -> str:
 <section class="card"><p>Packet <code>{html.escape(str(row[0]))}</code> · item {int(row[1])}</p>
 <p>Sampling selection: <strong>{html.escape(str(metadata['selection']))}</strong></p>
 <p>Lane: <strong>{html.escape(str(row[2]))}</strong></p>
-<p>Your judgment: insect <strong>{html.escape(str(row[5]))}</strong>; chicken <strong>{html.escape(str(row[6]))}</strong>; quality <strong>{html.escape(str(row[7]))}</strong>.</p></section>
+<p>Your judgment: insect <strong>{html.escape(str(row[5]))}</strong>; chicken <strong>{html.escape(str(row[6]))}</strong>; frog <strong>{html.escape(str(row[7]))}</strong>; quality <strong>{html.escape(str(row[8]))}</strong>.</p></section>
 <table><thead><tr><th>Target</th><th>Model</th><th>Ranking score</th><th>Diagnostic threshold</th><th>Crossed</th></tr></thead>
 <tbody>{''.join(context_rows)}</tbody></table>
 <p class="notice">Scores are uncalibrated ranking scores, not probabilities.</p>
@@ -460,6 +464,7 @@ class ValidationDeskHandler(BaseHTTPRequestHandler):
                 reviewer=form.get("reviewer", [""])[0],
                 insect_presence=form.get("insect_presence", [""])[0],
                 chicken_presence=form.get("chicken_presence", [""])[0],
+                frog_presence=form.get("frog_presence", [""])[0],
                 signal_quality=form.get("signal_quality", [""])[0],
                 confounders=form.get("confounder", []),
                 notes=form.get("notes", [None])[0],

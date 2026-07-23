@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 DDL = """
 CREATE TABLE IF NOT EXISTS commons_schema_versions (
@@ -385,6 +385,8 @@ CREATE TABLE IF NOT EXISTS commons_validation_reviews (
         CHECK (insect_presence IN ('present', 'absent', 'uncertain')),
     chicken_presence TEXT NOT NULL
         CHECK (chicken_presence IN ('present', 'absent', 'uncertain')),
+    frog_presence TEXT NOT NULL
+        CHECK (frog_presence IN ('present', 'absent', 'uncertain')),
     signal_quality TEXT NOT NULL
         CHECK (signal_quality IN ('clear', 'distant', 'overlapping', 'clipped', 'noisy', 'inaudible')),
     confounders_json TEXT NOT NULL DEFAULT '[]',
@@ -703,6 +705,22 @@ def migrate(conn: sqlite3.Connection) -> None:
                 raise RuntimeError(
                     f"cannot backfill source recording identity for {missing} validation items"
                 )
+    validation_reviews_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='commons_validation_reviews'"
+    ).fetchone() is not None
+    if validation_reviews_exists:
+        review_columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(commons_validation_reviews)")
+        }
+        if "frog_presence" not in review_columns:
+            conn.execute(
+                """
+                ALTER TABLE commons_validation_reviews
+                ADD COLUMN frog_presence TEXT NOT NULL DEFAULT 'uncertain'
+                    CHECK (frog_presence IN ('present', 'absent', 'uncertain'))
+                """
+            )
     conn.executescript(DDL)
     conn.executemany(
         """
@@ -717,6 +735,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             (5, "Current nearest-context view and reviewed factory hardening"),
             (6, "Blinded weekly field-validation packets, reviews, and sentinels"),
             (7, "Frozen source-recording identity and complete validation immutability"),
+            (8, "FrogNet-aware blinded validation reviews and model context"),
         ],
     )
     conn.commit()

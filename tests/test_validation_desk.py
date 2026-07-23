@@ -72,6 +72,7 @@ class ValidationDeskTest(unittest.TestCase):
             page = render_review_page(conn, item_id=item_id, csrf_token="secret")
             self.assertIn("Exact five-second window", page)
             self.assertIn("Full 15-second context", page)
+            self.assertIn("Frog or toad vocalization", page)
             with patch(
                 "scripts.run_validation_desk.PROTOCOL_VERSION",
                 "weekly_blinded_future",
@@ -121,12 +122,14 @@ class ValidationDeskTest(unittest.TestCase):
                 reviewer="human:test",
                 insect_presence="present",
                 chicken_presence="absent",
+                frog_presence="present",
                 signal_quality="clear",
                 reviewed_at="2026-07-16T16:10:00+00:00",
             )
             reveal = render_reveal_page(conn, item_id=item_id)
             self.assertIn(metadata["selection"], reveal)
             self.assertIn(metadata["model_context"]["insect_present"]["model_slug"], reveal)
+            self.assertIn(metadata["model_context"]["frog_present"]["model_slug"], reveal)
             self.assertIn(packet_id, reveal)
             conn.close()
 
@@ -158,6 +161,7 @@ class ValidationDeskTest(unittest.TestCase):
                         "reviewer": "human:test",
                         "insect_presence": "present",
                         "chicken_presence": "absent",
+                        "frog_presence": "present",
                         "signal_quality": "clear",
                     }
                 ).encode()
@@ -180,6 +184,7 @@ class ValidationDeskTest(unittest.TestCase):
                         "reviewer": "human:test",
                         "insect_presence": "present",
                         "chicken_presence": "absent",
+                        "frog_presence": "present",
                         "signal_quality": "clear",
                         "confounder": "bird_overlap",
                         "notes": "test review",

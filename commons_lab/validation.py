@@ -18,13 +18,14 @@ from zoneinfo import ZoneInfo
 from .acoustic import record_human_acoustic_review
 from .safe_paths import resolve_no_symlinks
 
-PROTOCOL_VERSION = "weekly_blinded_v4"
+PROTOCOL_VERSION = "weekly_blinded_v5"
 LOCAL_TIMEZONE = "America/New_York"
-TARGET_COUNT = 24
-UNIQUE_COUNT = 22
+TARGET_COUNT = 32
+UNIQUE_COUNT = 30
 MODEL_CLASSES = (
     "insect_present",
     "chicken_vocalization_present",
+    "frog_present",
 )
 
 
@@ -41,7 +42,7 @@ class ReviewResult:
     review_id: str
     item_id: str
     packet_id: str
-    assertion_ids: tuple[str, str]
+    assertion_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,9 @@ def _sampling_frame(conn: sqlite3.Connection) -> list[_Candidate]:
         JOIN commons_acoustic_windows AS w
           ON w.event_id=e.event_id AND w.media_id=m.media_id
         WHERE e.event_type='acoustic_recording'
-          AND w.class_name IN ('insect_present','chicken_vocalization_present')
+          AND w.class_name IN (
+              'insect_present','chicken_vocalization_present','frog_present'
+          )
         ORDER BY e.event_id,w.start_sample,w.class_name,w.bundle_id
         """
     ).fetchall()
@@ -575,7 +578,8 @@ def generate_weekly_packet(
             None,
             False,
             0,
-            f"sampling frame needs at least 22 unique parent recordings; found {len(unique_recordings)}",
+            f"sampling frame needs at least {UNIQUE_COUNT} unique parent recordings; "
+            f"found {len(unique_recordings)}",
         )
 
     seed = hashlib.sha256(
@@ -612,9 +616,10 @@ def generate_weekly_packet(
         )
 
     repeat_sources = sorted(
-        item_specs[:18], key=lambda item: _stable_hash(seed, "repeat", item["item_id"])
+        item_specs[:UNIQUE_COUNT],
+        key=lambda item: _stable_hash(seed, "repeat", item["item_id"]),
     )[:2]
-    for position, source in enumerate(repeat_sources, start=23):
+    for position, source in enumerate(repeat_sources, start=UNIQUE_COUNT + 1):
         metadata = dict(source["sampling_metadata"])
         metadata["selection"] = "hidden_repeat_for_within_reviewer_agreement"
         metadata["repeat_of_item_id"] = source["item_id"]
@@ -773,16 +778,18 @@ def record_validation_review(
     chicken_presence: str,
     signal_quality: str,
     reviewed_at: str,
+    frog_presence: str = "uncertain",
     confounders: Sequence[str] = (),
     notes: str | None = None,
     review_seconds: float | None = None,
 ) -> ReviewResult:
-    """Append one blinded two-label review and both human assertions atomically."""
+    """Append one blinded three-label review and all human assertions atomically."""
     reviewer = reviewer.strip()
     if not reviewer:
         raise ValueError("reviewer is required")
     insect_value, insect_certainty = _presence_assertion(insect_presence)
     chicken_value, chicken_certainty = _presence_assertion(chicken_presence)
+    frog_value, frog_certainty = _presence_assertion(frog_presence)
     qualities = {"clear", "distant", "overlapping", "clipped", "noisy", "inaudible"}
     if signal_quality not in qualities:
         raise ValueError("unknown signal quality")
@@ -844,6 +851,7 @@ def record_validation_review(
         for class_name, present, certainty in (
             ("insect_present", insect_value, insect_certainty),
             ("chicken_vocalization_present", chicken_value, chicken_certainty),
+            ("frog_present", frog_value, frog_certainty),
         ):
             context = contexts[class_name]
             assertion_ids.append(
@@ -870,10 +878,10 @@ def record_validation_review(
         conn.execute(
             """
             INSERT INTO commons_validation_reviews(
-                review_id,item_id,reviewer,insect_presence,chicken_presence,
+                review_id,item_id,reviewer,insect_presence,chicken_presence,frog_presence,
                 signal_quality,confounders_json,notes,review_seconds,
                 assertion_ids_json,reviewed_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 review_id,
@@ -881,6 +889,7 @@ def record_validation_review(
                 reviewer,
                 insect_presence,
                 chicken_presence,
+                frog_presence,
                 signal_quality,
                 _canonical_json(normalized_confounders),
                 notes,
@@ -925,7 +934,7 @@ def record_validation_review(
     except Exception:
         conn.rollback()
         raise
-    return ReviewResult(review_id, item_id, packet_id, (assertion_ids[0], assertion_ids[1]))
+    return ReviewResult(review_id, item_id, packet_id, tuple(assertion_ids))
 
 
 def wilson_interval(
@@ -995,7 +1004,7 @@ def validation_report(
         f"""
         SELECT i.item_id,i.packet_id,i.event_id,i.lane,i.source_item_id,
                i.primary_class_name,i.sampling_metadata_json,
-               r.insect_presence,r.chicken_presence,r.signal_quality,
+               r.insect_presence,r.chicken_presence,r.frog_presence,r.signal_quality,
                r.review_seconds,r.reviewed_at,e.started_at,i.source_recording_id
         FROM commons_validation_items AS i
         JOIN commons_validation_packets AS p ON p.packet_id=i.packet_id
@@ -1023,11 +1032,12 @@ def validation_report(
                 "metadata": metadata,
                 "insect_present": str(row[7]),
                 "chicken_vocalization_present": str(row[8]),
-                "signal_quality": str(row[9]),
-                "review_seconds": None if row[10] is None else float(row[10]),
-                "reviewed_at": str(row[11]),
-                "started_at": str(row[12]),
-                "source_recording_id": str(row[13]),
+                "frog_present": str(row[9]),
+                "signal_quality": str(row[10]),
+                "review_seconds": None if row[11] is None else float(row[11]),
+                "reviewed_at": str(row[12]),
+                "started_at": str(row[13]),
+                "source_recording_id": str(row[14]),
             }
         )
     non_repeats = [record for record in records if record["lane"] != "blind_repeat"]
@@ -1099,6 +1109,15 @@ def validation_report(
             None
             if paired == 0
             else sum(left["chicken_vocalization_present"] == right["chicken_vocalization_present"] for left, right in repeat_pairs) / paired
+        ),
+        "frog_exact_agreement": (
+            None
+            if paired == 0
+            else sum(
+                left["frog_present"] == right["frog_present"]
+                for left, right in repeat_pairs
+            )
+            / paired
         ),
         "signal_quality_exact_agreement": (
             None

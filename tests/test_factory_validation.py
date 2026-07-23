@@ -80,6 +80,12 @@ def populate_validation_frame(
                     "chicken_vocalization_present",
                     max(0.000001, chicken_base - span_index * 0.004),
                 ),
+                (
+                    "bundle-frog",
+                    "frog-fixture",
+                    "frog_present",
+                    min(0.999999, 0.55 + phase * 0.025 + span_index * 0.003),
+                ),
             ):
                 if reverse_scores:
                     score = max(0.000001, min(0.999999, 1.6 - score))
@@ -125,7 +131,7 @@ class ValidationSchemaTest(unittest.TestCase):
                 )
             }
             self.assertGreaterEqual(SCHEMA_VERSION, 6)
-            self.assertGreaterEqual(SCHEMA_VERSION, 7)
+            self.assertGreaterEqual(SCHEMA_VERSION, 8)
             self.assertTrue(
                 {
                     "commons_validation_packets",
@@ -159,6 +165,11 @@ class ValidationSchemaTest(unittest.TestCase):
                 for row in conn.execute("PRAGMA table_info(commons_validation_items)")
             }
             self.assertIn("source_recording_id", item_columns)
+            review_columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(commons_validation_reviews)")
+            }
+            self.assertIn("frog_presence", review_columns)
             self.assertEqual(
                 conn.execute(
                     "SELECT MAX(version) FROM commons_schema_versions"
@@ -274,7 +285,7 @@ class WeeklyPacketTest(unittest.TestCase):
             replay = generate_weekly_packet(conn, now=now)
 
             self.assertTrue(first.created)
-            self.assertEqual(first.item_count, 24)
+            self.assertEqual(first.item_count, 32)
             self.assertFalse(replay.created)
             self.assertEqual(replay.packet_id, first.packet_id)
             packet = conn.execute(
@@ -285,10 +296,10 @@ class WeeklyPacketTest(unittest.TestCase):
                 """,
                 (first.packet_id,),
             ).fetchone()
-            self.assertEqual(packet[0], "weekly_blinded_v4")
+            self.assertEqual(packet[0], "weekly_blinded_v5")
             self.assertEqual(packet[1], "2026-07-13")
             self.assertEqual(packet[2], "America/New_York")
-            self.assertEqual(packet[3], 24)
+            self.assertEqual(packet[3], 32)
             import hashlib
 
             self.assertEqual(
@@ -306,8 +317,8 @@ class WeeklyPacketTest(unittest.TestCase):
             self.assertEqual(
                 Counter(row[4] for row in rows),
                 {
-                    "model_positive": 8,
-                    "boundary": 8,
+                    "model_positive": 12,
+                    "boundary": 12,
                     "random_control": 6,
                     "blind_repeat": 2,
                 },
@@ -318,6 +329,7 @@ class WeeklyPacketTest(unittest.TestCase):
                     {
                         "insect_present": 4,
                         "chicken_vocalization_present": 4,
+                        "frog_present": 4,
                     },
                 )
             boundary_sides = Counter(
@@ -332,10 +344,12 @@ class WeeklyPacketTest(unittest.TestCase):
                     ("insect_present", "below"): 2,
                     ("chicken_vocalization_present", "above"): 2,
                     ("chicken_vocalization_present", "below"): 2,
+                    ("frog_present", "above"): 2,
+                    ("frog_present", "below"): 2,
                 },
             )
             unique_rows = [row for row in rows if row[4] != "blind_repeat"]
-            self.assertEqual(len({row[3] for row in unique_rows}), 22)
+            self.assertEqual(len({row[3] for row in unique_rows}), 30)
             by_id = {row[0]: row for row in rows}
             repeats = [row for row in rows if row[4] == "blind_repeat"]
             for repeated in repeats:
@@ -369,7 +383,7 @@ class WeeklyPacketTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             conn = sqlite3.connect(Path(td) / "archive.db")
             migrate(conn)
-            populate_validation_frame(conn, count=60)
+            populate_validation_frame(conn, count=90)
             first = generate_weekly_packet(
                 conn, now=datetime(2026, 7, 16, 16, tzinfo=timezone.utc)
             )
@@ -456,7 +470,7 @@ class WeeklyPacketTest(unittest.TestCase):
                 """,
                 (packet.packet_id,),
             ).fetchone()[0]
-            self.assertEqual(unique_recordings, 22)
+            self.assertEqual(unique_recordings, 30)
             conn.close()
 
     def test_existing_packet_replay_rejects_a_missing_manifest_item(self):
@@ -504,7 +518,7 @@ class WeeklyPacketTest(unittest.TestCase):
             )
             self.assertFalse(result.created)
             self.assertEqual(result.item_count, 0)
-            self.assertIn("22 unique", result.reason)
+            self.assertIn("30 unique", result.reason)
             self.assertEqual(
                 conn.execute(
                     "SELECT COUNT(*) FROM commons_validation_packets"
@@ -525,7 +539,7 @@ class WeeklyPacketTest(unittest.TestCase):
             f"{PROTOCOL_VERSION}|America/New_York|2026-07-13".encode()
         ).hexdigest()
         control_indices = sorted(
-            range(22),
+            range(30),
             key=lambda index: hashlib.sha256(
                 f"{seed}|random-control|recording-{index:03d}".encode()
             ).hexdigest(),
@@ -533,16 +547,17 @@ class WeeklyPacketTest(unittest.TestCase):
         scarce_below = set(control_indices[:2])
         overrides = {
             (index, class_name): (0.7 if index in scarce_below else 0.9)
-            for index in range(22)
+            for index in range(30)
             for class_name in (
                 "insect_present",
                 "chicken_vocalization_present",
+                "frog_present",
             )
         }
         with tempfile.TemporaryDirectory() as td:
             conn = sqlite3.connect(Path(td) / "archive.db")
             migrate(conn)
-            populate_validation_frame(conn, count=22, score_overrides=overrides)
+            populate_validation_frame(conn, count=30, score_overrides=overrides)
             readiness = validation_sampling_readiness(conn, now=now)
             result = generate_weekly_packet(conn, now=now)
             self.assertFalse(readiness["ready"])
@@ -565,7 +580,7 @@ class WeeklyPacketTest(unittest.TestCase):
             generate_weekly_packet,
         )
 
-        self.assertEqual(PROTOCOL_VERSION, "weekly_blinded_v4")
+        self.assertEqual(PROTOCOL_VERSION, "weekly_blinded_v5")
         control_sets = []
         with tempfile.TemporaryDirectory() as td:
             for index in range(2):
@@ -578,7 +593,7 @@ class WeeklyPacketTest(unittest.TestCase):
                     frame,
                     used_now=baseline_used,
                     seed=hashlib.sha256(
-                        b"weekly_blinded_v4|America/New_York|2026-07-13"
+                        b"weekly_blinded_v5|America/New_York|2026-07-13"
                     ).hexdigest(),
                 )
                 baseline_recordings = {
@@ -588,7 +603,7 @@ class WeeklyPacketTest(unittest.TestCase):
                     sorted(
                         {candidate.source_recording_id for candidate in frame},
                         key=lambda recording_id: hashlib.sha256(
-                            f"{hashlib.sha256(b'weekly_blinded_v4|America/New_York|2026-07-13').hexdigest()}|random-control|{recording_id}".encode()
+                            f"{hashlib.sha256(b'weekly_blinded_v5|America/New_York|2026-07-13').hexdigest()}|random-control|{recording_id}".encode()
                         ).hexdigest(),
                     )[:6]
                 )
@@ -717,7 +732,7 @@ class ValidationReviewTest(unittest.TestCase):
                 self.assertEqual(sliced.getframerate(), 48000)
                 self.assertEqual(sliced.getnframes(), 240000)
 
-    def test_review_appends_two_training_ineligible_assertions_atomically(self):
+    def test_review_appends_three_training_ineligible_assertions_atomically(self):
         from commons_lab.validation import record_validation_review
 
         with tempfile.TemporaryDirectory() as td:
@@ -747,13 +762,14 @@ class ValidationReviewTest(unittest.TestCase):
                 reviewer="human:test",
                 insect_presence="present",
                 chicken_presence="absent",
+                frog_presence="present",
                 signal_quality="clear",
                 confounders=["bird_overlap"],
                 notes="Audible insect; no chicken vocalization.",
                 review_seconds=12.5,
                 reviewed_at="2026-07-16T16:10:00+00:00",
             )
-            self.assertEqual(len(result.assertion_ids), 2)
+            self.assertEqual(len(result.assertion_ids), 3)
             self.assertEqual(
                 conn.execute(
                     "SELECT state FROM commons_validation_items WHERE item_id=?",
@@ -779,12 +795,12 @@ class ValidationReviewTest(unittest.TestCase):
                 for row in conn.execute(
                     """
                     SELECT value_json FROM commons_assertions
-                    WHERE assertion_id IN (?,?) ORDER BY subject
+                    WHERE assertion_id IN (?,?,?) ORDER BY subject
                     """,
                     result.assertion_ids,
                 )
             ]
-            self.assertEqual(len(values), 2)
+            self.assertEqual(len(values), 3)
             self.assertTrue(all(value["training_eligible"] is False for value in values))
             self.assertTrue(all(value["validation_item_id"] == item[0] for value in values))
             with self.assertRaisesRegex(ValueError, "already reviewed"):
@@ -942,6 +958,7 @@ class ValidationMetricsAndSentinelTest(unittest.TestCase):
             ).fetchall()
             insect_positive = [row for row in items if row[1] == "model_positive" and row[2] == "insect_present"]
             chicken_positive = [row for row in items if row[1] == "model_positive" and row[2] == "chicken_vocalization_present"]
+            frog_positive = [row for row in items if row[1] == "model_positive" and row[2] == "frog_present"]
             controls = [row for row in items if row[1] == "random_control"]
             by_id = {row[0]: row for row in items}
             repeat = next(
@@ -951,26 +968,29 @@ class ValidationMetricsAndSentinelTest(unittest.TestCase):
             )
             source_id = repeat[3]
             selected = [
-                (insect_positive[0][0], "present", "absent"),
-                (insect_positive[1][0], "present", "absent"),
-                (insect_positive[2][0], "absent", "absent"),
-                (insect_positive[3][0], "uncertain", "absent"),
-                (chicken_positive[0][0], "absent", "present"),
-                (chicken_positive[1][0], "absent", "absent"),
-                (controls[0][0], "present", "absent"),
-                (controls[1][0], "absent", "absent"),
+                (insect_positive[0][0], "present", "absent", "absent"),
+                (insect_positive[1][0], "present", "absent", "absent"),
+                (insect_positive[2][0], "absent", "absent", "absent"),
+                (insect_positive[3][0], "uncertain", "absent", "absent"),
+                (chicken_positive[0][0], "absent", "present", "absent"),
+                (chicken_positive[1][0], "absent", "absent", "absent"),
+                (frog_positive[0][0], "absent", "absent", "present"),
+                (frog_positive[1][0], "absent", "absent", "absent"),
+                (controls[0][0], "present", "absent", "present"),
+                (controls[1][0], "absent", "absent", "absent"),
             ]
             if source_id not in {item[0] for item in selected}:
-                selected.append((source_id, "present", "absent"))
+                selected.append((source_id, "present", "absent", "present"))
             source_label = next(item for item in selected if item[0] == source_id)
-            selected.append((repeat[0], source_label[1], source_label[2]))
-            for index, (item_id, insect, chicken) in enumerate(selected):
+            selected.append((repeat[0], source_label[1], source_label[2], source_label[3]))
+            for index, (item_id, insect, chicken, frog) in enumerate(selected):
                 record_validation_review(
                     conn,
                     item_id=item_id,
                     reviewer="human:test",
                     insect_presence=insect,
                     chicken_presence=chicken,
+                    frog_presence=frog,
                     signal_quality="clear",
                     review_seconds=10 + index,
                     reviewed_at=(
@@ -991,6 +1011,9 @@ class ValidationMetricsAndSentinelTest(unittest.TestCase):
             random_insect = report["performance"]["insect_present"]["random_control"]
             self.assertEqual(random_insect["decided"], 2)
             self.assertEqual(random_insect["present"], 1)
+            frog = report["performance"]["frog_present"]["model_positive"]
+            self.assertEqual(frog["decided"], 2)
+            self.assertEqual(frog["present"], 1)
             self.assertEqual(report["repeat_agreement"]["paired_items"], 1)
             self.assertEqual(report["repeat_agreement"]["insect_exact_agreement"], 1.0)
             self.assertGreater(report["coverage"]["unique_recordings"], 0)
@@ -1188,7 +1211,7 @@ class ValidationAutomationTest(unittest.TestCase):
             result = validation[0].result
             self.assertIsNotNone(result)
             assert result is not None
-            self.assertEqual(result["item_count"], 24)
+            self.assertEqual(result["item_count"], 32)
             self.assertEqual(
                 conn.execute("SELECT COUNT(*) FROM commons_validation_packets").fetchone()[0],
                 1,

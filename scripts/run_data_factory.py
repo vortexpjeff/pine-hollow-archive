@@ -44,6 +44,7 @@ DEFAULT_REVIEW_DIR = Path.home() / ".local/share/insectnet-field/review"
 DEFAULT_BUNDLES = (
     Path.home() / ".local/share/insectnet-field/bundles/insectnet-dev2-field-probe",
     Path.home() / ".local/share/insectnet-field/bundles/chickennet-dev2-field-probe",
+    Path.home() / ".local/share/insectnet-field/bundles/frognet-dev4-field-probe",
 )
 DEFAULT_OBSERVATORY = Path.home() / "vortex-site/data/observatory.json"
 DEFAULT_LOCK = Path.home() / ".cache/pine-hollow-commons/data-factory.lock"
@@ -398,6 +399,7 @@ def command_validation_review(args: argparse.Namespace) -> None:
         reviewer=args.reviewer,
         insect_presence=args.insect_presence,
         chicken_presence=args.chicken_presence,
+        frog_presence=args.frog_presence,
         signal_quality=args.signal_quality,
         confounders=args.confounder,
         notes=args.notes,
@@ -520,7 +522,7 @@ def parser() -> argparse.ArgumentParser:
     validation_report_parser.set_defaults(func=command_validation_report)
 
     validation_review = sub.add_parser(
-        "validation-review", help="Append one two-label validation judgment"
+        "validation-review", help="Append one three-label validation judgment"
     )
     validation_review.add_argument("--item-id", required=True)
     validation_review.add_argument("--reviewer", required=True)
@@ -529,6 +531,9 @@ def parser() -> argparse.ArgumentParser:
     )
     validation_review.add_argument(
         "--chicken-presence", choices=("present", "absent", "uncertain"), required=True
+    )
+    validation_review.add_argument(
+        "--frog-presence", choices=("present", "absent", "uncertain"), required=True
     )
     validation_review.add_argument(
         "--signal-quality",
